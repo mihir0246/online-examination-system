@@ -1,9 +1,7 @@
-var express = require("express");
-var router = express.Router();
-var userservice  = require("../services/user");
+import express from "express";
+const router = express.Router();
+import { userdetails } from "../services/user.js";
 
-router.get('/details',userservice.userdetails);
+router.get('/details', userdetails);
 
-
-
-module.exports=router;
+export default router;

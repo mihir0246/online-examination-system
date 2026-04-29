@@ -1,8 +1,7 @@
-const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
-const config = require('config');
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 
 // Initialize S3 Client
-const s3Client = new S3Client({
+export const s3Client = new S3Client({
     region: process.env.AWS_REGION || 'eu-north-1',
     credentials: {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
@@ -17,7 +16,7 @@ const s3Client = new S3Client({
  * @param {string} contentType - The MIME type of the file
  * @returns {Promise<string>} - The public URL of the uploaded file
  */
-const uploadToS3 = async (body, key, contentType, acl = 'public-read') => {
+export const uploadToS3 = async (body, key, contentType, acl = 'public-read') => {
     const bucketName = process.env.S3_BUCKET_NAME;
     
     if (!bucketName) {
@@ -40,5 +39,3 @@ const uploadToS3 = async (body, key, contentType, acl = 'public-read') => {
         location: `https://${bucketName}.s3.${process.env.AWS_REGION || 'eu-north-1'}.amazonaws.com/${key}`
     };
 };
-
-module.exports = { s3Client, uploadToS3 };

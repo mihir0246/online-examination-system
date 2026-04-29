@@ -1,11 +1,12 @@
-const express = require('express');
+import express from 'express';
 const router = express.Router();
-const multer = require('multer');
-const path = require('path');
-const { s3Client, uploadToS3 } = require("../services/s3");
-const { GetObjectCommand } = require('@aws-sdk/client-s3');
-const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
-const FileType = require('file-type');
+import multer from 'multer';
+import path from 'path';
+import { s3Client, uploadToS3 } from "../services/s3.js";
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import FileType from 'file-type';
+const { fileTypeFromBuffer } = FileType;
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -34,7 +35,7 @@ router.post('/', upload.single('file'), async (req, res, next) => {
         }
 
         // 1. Validate magic bytes using file-type
-        const fileTypeResult = await FileType.fromBuffer(req.file.buffer);
+        const fileTypeResult = await fileTypeFromBuffer(req.file.buffer);
         
         // If file-type can't detect the type or it's not allowed
         if (!fileTypeResult || !ALLOWED_MIME_TYPES.includes(fileTypeResult.mime)) {
@@ -86,4 +87,4 @@ router.use((err, req, res, next) => {
     next();
 });
 
-module.exports = router;
+export default router;

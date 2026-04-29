@@ -1,15 +1,13 @@
-const userdetails = (req, res, next) => {
-    res.json({
-        success : true,
-        message : 'successfull',
-        user: {
-            name : req.user.name,
-            type: req.user.type,
-            _id : req.user._id,
-            emailid : req.user.emailid,
-            contact : req.user.contact
-        }
-    })
-}
-
-module.exports = { userdetails };
+export const userdetails = (req, res, next) => {
+  res.json({
+    success: true,
+    message: 'Success',
+    user: {
+      id: req.user.id,
+      name: req.user.name,
+      type: req.user.type,
+      emailid: req.user.emailid,
+      contact: req.user.contact
+    }
+  });
+};

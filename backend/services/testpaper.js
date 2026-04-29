@@ -1,552 +1,618 @@
-let QuestionModel = require("../models/questions");
-let TestPaperModel = require("../models/testpaper");
-let TraineeEnterModel = require("../models/trainee");
-let tool = require("./tool");
-let options = require("../models/option");
-let SubjectModel = require("../models/subject");
-let result  =require("../services/excel").result;
-let ResultModel = require("../models/results");
+import prisma from "./prisma.js";
+import { z } from "zod";
+import logger from "./logger.js";
+import { reportQueue } from "./queue.js";
+import { gresult } from "./generateResults.js";
+import { getIO } from "./socket.js";
+import { sendmail } from "./mail.js";
+import moment from "moment";
 
+const testSchema = z.object({
+  type: z.string().min(1, "Type is required"),
+  title: z.string().min(1, "Title is required"),
+  questions: z.array(z.string()).min(1, "At least one question is required"),
+  duration: z.number().min(1, "Duration is required"),
+  organisation: z.string().optional(),
+  difficulty: z.number().default(1),
+  subjects: z.array(z.string()).optional(),
+  _id: z.string().optional().nullable()
+});
 
-let createEditTest = (req,res,next)=>{
-    var _id = req.body._id || null;
-    if(req.user.type==='TRAINER' || req.user.type==='ADMIN'){
-    req.check('type', `invalid type`).notEmpty();
-    req.check('title', 'enter title').notEmpty();
-    req.check('questions', 'enter questions').notEmpty();
-
-    var errors = req.validationErrors()
-    if(errors){
-        res.json({
-            success : false,
-            message : 'Invalid inputs',
-            errors : errors
-        })
-    }
-    else {
-        var title =  req.body.title;
-        var questions = req.body.questions;
-        if(_id!=null){
-            TestPaperModel.findOneAndUpdate({
-                _id : _id,
-            },
-            {
-                title : title,
-                questions : questions
-            }).then(()=>{
-                res.json({
-                    success: true,
-                    message :  "Testpaper has been updated!"
-                })
-            }).catch((err)=>{
-                res.status(500).json({
-                    success : false,
-                    message : "Unable to update testpaper!"
-            })
-        })
-      }
-    else{
-        var type =  req.body.type;
-        var title =  req.body.title;
-        var questionsid =  req.body.questions;
-        var difficulty =  req.body.difficulty || null;
-        var organisation = req.body.organisation;
-        var duration = req.body.duration;
-        var subjects = req.body.subjects;
-        
-            TestPaperModel.findOne({ title : title,type : type,testbegins : 0 },{status:0})
-            .then((info)=>{
-                if(!info){
-                    var tempdata = TestPaperModel({
-                        type: type,
-                        title : title,
-                        questions : questionsid,
-                        difficulty : difficulty,
-                        organisation : organisation,
-                        duration :duration,
-                        createdBy : req.user._id,
-                        subjects : subjects,
-                    
-                    })
-                    tempdata.save().then((d)=>{
-                        res.json({
-                            success : true,
-                            message : `New testpaper created successfully!`,
-                            testid : d._id
-                        })
-                    }).catch((err)=>{
-                        res.status(500).json({
-                            success : false,
-                            message : "Unable to create new testpaper!"
-                        })
-                    })
-                }
-                else{
-                    res.json({
-                        success : false,
-                        message : `This testpaper already exists!`
-                    })
-                }   
-
-            })
-        
-        }
-     }
+export const createEditTest = async (req, res, next) => {
+  const validation = testSchema.safeParse(req.body);
+  
+  if (!validation.success) {
+    return res.status(400).json({
+      success: false,
+      message: validation.error.errors.map(e => e.message).join(", ")
+    });
   }
-    else{
-        res.status(401).json({
-            success : false,
-            message : "Permissions not granted!"
-        })
 
+  if (req.user.type !== 'TRAINER' && req.user.type !== 'ADMIN') {
+    return res.status(401).json({ success: false, message: "Unauthorized" });
+  }
+
+  try {
+    const { title, questions, type, difficulty, organisation, duration, subjects, _id } = validation.data;
+
+    // RBAC: Trainers can only create/edit tests for subjects they are assigned to
+    if (req.user.type === 'TRAINER') {
+      const u = await prisma.user.findUnique({ where: { id: req.user.id }, select: { subjectIds: true }});
+      const assigned = u.subjectIds || [];
+      const hasUnassigned = (subjects || []).some(s => !assigned.includes(s));
+      if (hasUnassigned) {
+        return res.status(403).json({ success: false, message: "Unauthorized: You can only assign tests to your assigned subjects." });
+      }
     }
-}
 
-let getSingletest = (req,res,next)=>{
-    let id = req.params._id;
-    TestPaperModel.find({_id: id,status : 1},{createdAt: 0, updatedAt : 0,status : 0})
-    .populate('createdBy', 'name')
-    .populate('questions' , 'body')
-    .populate({
-        path: 'subjects',
-        model : SubjectModel
-    })
-    .populate({ path: 'questions', 
-        populate: {  
-            path: 'options',
-            model: options,
+    if (_id) {
+      await prisma.test.update({
+        where: { id: _id },
+        data: { 
+          title, 
+          questionIds: questions,
+          subjectIds: subjects || []
         }
-    })
-    .exec().then((testpaper) => {
-        res.json({
-            success : true,
-            message : `Success`,
-            data : testpaper
-        })   
-    }).catch((err) => {
-        res.status(500).json({
-            success : false,
-            message : "Unable to fetch data"
-        })
-    });        
-}
+      });
+      return res.json({ success: true, message: "Testpaper updated!" });
+    } else {
+      const existing = await prisma.test.findFirst({
+        where: { title, type, status: true, testbegins: false }
+      });
 
-let getAlltests = (req,res,next)=>{
-    if(req.user.type==='TRAINER' || req.user.type==='ADMIN'){
-        var title = req.body.title;
-        let query = { status: 1 };
-        if (req.user.type !== 'ADMIN') {
-            query.createdBy = req.user._id;
+      if (existing) {
+        return res.status(409).json({ success: false, message: "Testpaper already exists!" });
+      }
+
+      const newTest = await prisma.test.create({
+        data: {
+          type,
+          title,
+          duration,
+          difficulty,
+          organisation,
+          createdById: req.user.id,
+          questionIds: questions,
+          subjectIds: subjects || []
         }
-        TestPaperModel.find(query, { status: 0 })
-            .populate('questions' , 'body')
-            .populate({
-                path: 'subjects',
-                model : SubjectModel
-            })
-            .populate({ path: 'questions', 
-            populate: {  
-                path: 'options',
-                model: options
-            }
+      });
 
-        })
-        
-            .exec().then((testpaper) => {
-                res.json({
-                    success : true,
-                    message : `Success`,
-                    data : testpaper
-                })
-            }).catch((err) => {
-                res.status(500).json({
-                    success : false,
-                    message : "Unable to fetch data"
-                })
-            });        
-        
+      return res.json({
+        success: true,
+        message: "New testpaper created successfully!",
+        testid: newTest.id
+      });
+    }
+  } catch (err) {
+    logger.error(`Test creation error: ${err.message}`);
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+export const getSingletest = async (req, res, next) => {
+  try {
+    const { _id } = req.params;
+    const testpaper = await prisma.test.findUnique({
+      where: { id: _id, status: true },
+      include: {
+        createdBy: { select: { name: true } },
+        subjects: { select: { id: true, topic: true } },
+        questions: {
+          include: { options: true }
         }
-    else{
-        res.status(401).json({
-            success : false,
-            message : "Permissions not granted!"
-        })
-    } 
-}   
+      }
+    });
 
-let deleteTest = (req,res,next)=>{
-    if(req.user.type==='TRAINER' || req.user.type==='ADMIN'){
-        var _id =  req.body._id;
-        TestPaperModel.findOneAndUpdate({
-            _id : _id
-        },
-        {
-            status : 0
-
-        }).then(()=>{
-            res.json({
-                success: true,
-                message :  "Test has been deleted"
-            })
-        }).catch((err)=>{
-            res.status(500).json({
-                success : false,
-                message : "Unable to delete test"
-            })
-        })
+    if (!testpaper) {
+      return res.status(404).json({ success: false, message: "Test not found" });
     }
-    else{
-        res.status(401).json({
-            success : false,
-            message : "Permissions not granted!"
-        })
-    } 
-}
-let TestDetails = (req,res,next)=>{
-    if(req.user.type === 'TRAINER' || req.user.type === 'ADMIN'){
-        let testid = req.body.id;
-        TestPaperModel.findOne({_id:testid,createdBy : req.user._id},{isResultgenerated:0,isRegistrationavailable:0,createdBy:0,status:0,testbegins:0,questions : 0})
-        .populate('subjects', 'topic')
-        .exec().then((TestDetails) => {
-            if(!TestDetails){
-                res.json({
-                    success : false,
-                    message : 'Invalid test id.'
-                })
-            }else{
-                res.json({
-                    success : true,
-                    message : 'Success',
-                    data : TestDetails
-                })
 
-            }
-        }).catch((err) => {
-            res.status(500).json({
-                success : false,
-                message : "Unable to fetch details"
-            })
-        });
-    }else{
-        res.status(401).json({
-            success : false,
-            message : "Permissions not granted!"
-        })
+    // RBAC: Trainers can only view tests if they are assigned to at least one of its subjects
+    if (req.user.type === 'TRAINER') {
+      const u = await prisma.user.findUnique({ where: { id: req.user.id }, select: { subjectIds: true }});
+      const assigned = u.subjectIds || [];
+      const hasAccess = testpaper.subjectIds.some(s => assigned.includes(s));
+      if (!hasAccess && testpaper.subjectIds.length > 0) {
+        return res.status(403).json({ success: false, message: "Unauthorized: You do not have access to this test's subjects." });
+      }
     }
-}
 
-let basicTestdetails = (req,res,next)=>{
-    if(req.user.type==='TRAINER' || req.user.type==='ADMIN'){
-        let testid = req.body.id;
-        TestPaperModel.findById(testid,{questions:0})
-        .populate('createdBy', 'name')
-        .populate('subjects', 'topic')
-        .exec().then((basicTestdetails) => {
-            if(!basicTestdetails){
-                res.json({
-                    success : false,
-                    message : 'Invalid test id.'
-                })
+    return res.json({
+      success: true,
+      message: "Success",
+      data: [testpaper]
+    });
+  } catch (err) {
+    logger.error(`Fetch single test error: ${err.message}`);
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
 
-            }
-            else{
-                res.json({
-                    success : true,
-                    message : 'Success',
-                    data : basicTestdetails
-                })
-
-            }
-        }).catch((err) => {
-            res.status(500).json({
-                success : false,
-                message : "Unable to fetch details"
-            })
-        });
-    }
-    else{
-        res.status(401).json({
-            success : false,
-            message : "Permissions not granted!"
-        })
-    }
+export const getAlltests = async (req, res, next) => {
+  try {
+    const query = { status: true };
     
-
-}
-
- let getTestquestions = (req,res,next)=>{
-     if(req.user.type==="TRAINER" || req.user.type==='ADMIN'){
-         var testid = req.body.id;
-         TestPaperModel.findById(testid,{type:0,title:0,subjects:0,duration:0,organisation:0,difficulty:0,testbegins:0,status:0,createdBy:0,isRegistrationavailable:0})
-        .populate('questions','body')
-        .populate({ 
-          path: 'questions',
-          model: QuestionModel,
-          select : {'body': 1,'quesimg' : 1,'weightage':1,'anscount': 1},
-            populate: {  
-                path: 'options',
-                model: options
-            }
-
-    })
-        .exec().then((getTestquestions) => {
-            if(!getTestquestions){
-                res.json({
-                    success : false,
-                    message : 'Invalid test id.'
-                })
-
-            }
-            else{
-                res.json({
-                    success : true,
-                    message : 'Success',
-                    data : getTestquestions.questions
-                })
-
-            }
-        }).catch((err) => {
-            res.status(500).json({
-                success : false,
-                message : "Unable to fetch details"
-            })
-        });
+    // RBAC: Trainers only see tests covering their assigned subjects
+    if (req.user.type === 'TRAINER') {
+      const u = await prisma.user.findUnique({ where: { id: req.user.id }, select: { subjectIds: true }});
+      if (u.subjectIds && u.subjectIds.length > 0) {
+        query.subjectIds = { hasSome: u.subjectIds };
+      } else {
+        query.subjectIds = { hasSome: ["000000000000000000000000"] }; // No access
+      }
+    } else if (req.user.type !== 'ADMIN') {
+      query.createdById = req.user.id;
     }
-    else{
-        res.status(401).json({
-            success : false,
-            message : "Permissions not granted!"
-        })
-    }
-     
- }
 
- let getCandidateDetails = (req,res,next)=>{
-    if(req.user.type==="TRAINER" || req.user.type==="ADMIN"){
-        var testid = req.body.testid;
-       ResultModel.find({testid : testid},{score : 1, userid : 1})
-       .populate('userid')
-       .exec().then((getCandidateDetails) => {
-            if(getCandidateDetails.length==null){
-                res.json({
-                    success : false,
-                    message: 'Invalid testid!'
-                })
-            }else{
-                res.json({
-                    success : true,
-                    message:'Candidate details',
-                    data : getCandidateDetails
-                })
-            }
-       }).catch((err) => {
-            res.status(500).json({
-                success : false,
-                message : "Unable to fetch details"
-            })
-       });
+    const testpapers = await prisma.test.findMany({
+      where: query,
+      include: {
+        subjects: { select: { id: true, topic: true } },
+        _count: { select: { questions: true } }
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: "Success",
+      data: testpapers
+    });
+  } catch (err) {
+    logger.error(`Fetch all tests error: ${err.message}`);
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+export const deleteTest = async (req, res, next) => {
+  try {
+    const { _id } = req.body;
+    await prisma.test.update({
+      where: { id: _id },
+      data: { status: false }
+    });
+    return res.json({ success: true, message: "Test deleted" });
+  } catch (err) {
+    logger.error(`Delete test error: ${err.message}`);
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+export const beginTest = async (req, res, next) => {
+  try {
+    const { id } = req.body;
+    
+    const testRecord = await prisma.test.findUnique({ where: { id } });
+    if (!testRecord) return res.status(404).json({ success: false, message: "Test not found." });
+    if (testRecord.testconducted) return res.status(400).json({ success: false, message: "Test has already been conducted." });
+    
+    const updated = await prisma.test.update({
+      where: { id },
+      data: { testbegins: true, isRegistrationavailable: false }
+    });
+    
+    // Notify waiting candidates
+    try {
+      const io = getIO();
+      io.to(id).emit("test-started", { testId: id });
+    } catch (socketErr) {
+      logger.error(`Socket notification failed for beginTest: ${socketErr.message}`);
     }
-    else{
-        res.status(401).json({
-            success : false,
-            message : "Permissions not granted!"
-        })
+
+    return res.json({
+      success: true,
+      message: 'Test started.',
+      data: updated
+    });
+  } catch (err) {
+    logger.error(`Begin test error: ${err.message}`);
+    return res.status(500).json({ success: false, message: "Unable to start test." });
+  }
+};
+
+export const endTest = async (req, res, next) => {
+  try {
+    const { id } = req.body;
+
+    const testRecord = await prisma.test.findUnique({ where: { id } });
+    if (!testRecord) return res.status(404).json({ success: false, message: "Test not found." });
+    if (testRecord.testconducted) return res.status(400).json({ success: false, message: "Test has already ended." });
+    if (!testRecord.testbegins) return res.status(400).json({ success: false, message: "Test has not started yet." });
+
+    const test = await prisma.test.update({
+      where: { id },
+      data: { 
+        testbegins: false, 
+        testconducted: true, 
+        isResultgenerated: true 
+      }
+    });
+
+    // Queue background job for report generation
+    await reportQueue.add({
+      testId: id,
+      type: 'FULL_REPORT'
+    });
+
+    // Mark all answer sheets as completed and generate results
+    const answerSheets = await prisma.answerSheet.findMany({
+      where: { testId: id, completed: false }
+    });
+    
+    if (answerSheets.length > 0) {
+      await prisma.answerSheet.updateMany({
+        where: { testId: id, completed: false },
+        data: { completed: true }
+      });
     }
- }
+
+    // Force result generation for everyone who started an answer sheet
+    const allSheets = await prisma.answerSheet.findMany({ where: { testId: id } });
+    for (const sheet of allSheets) {
+      try {
+        await gresult(sheet.traineeId, id);
+      } catch (err) {
+        logger.error(`Error generating result for trainee ${sheet.traineeId}: ${err.message}`);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: 'Test ended. Report generation queued.',
+      data: test
+    });
+  } catch (err) {
+    logger.error(`End test error: ${err.message}`);
+    return res.status(500).json({ success: false, message: "Unable to end test." });
+  }
+};
+
+export const MaxMarks = async (testid) => {
+  const test = await prisma.test.findUnique({
+    where: { id: testid },
+    include: { questions: { select: { weightage: true } } }
+  });
+
+  return test?.questions.reduce((sum, q) => sum + q.weightage, 0) || 0;
+};
+
+export const MM = async (req, res, next) => {
+  try {
+    const { testid } = req.body;
+    const maxM = await MaxMarks(testid);
+    return res.json({ success: true, data: maxM });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Error fetching max marks" });
+  }
+};
+
+export const basicTestdetails = async (req, res) => {
+  try {
+    const { _id } = req.body;
+    const test = await prisma.test.findUnique({
+      where: { id: _id },
+      include: { subjects: true, _count: { select: { trainees: true } } }
+    });
+    return res.json({ success: true, data: test });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+export const getTestquestions = async (req, res) => {
+  try {
+    const { _id } = req.body;
+    const test = await prisma.test.findUnique({
+      where: { id: _id },
+      include: { questions: { include: { options: true } } }
+    });
+    return res.json({ success: true, data: test?.questions || [] });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+export const getCandidates = async (req, res) => {
+  try {
+    const { _id } = req.body;
+    const trainees = await prisma.trainee.findMany({ 
+      where: { testId: _id },
+      include: { results: { orderBy: { createdAt: 'asc' } } }
+    });
+    return res.json({ success: true, data: trainees });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+export const getTestResultsList = async (req, res) => {
+  try {
+    const { testid } = req.body;
+    const testId = testid || req.body._id || req.body.testId;
+    const trainees = await prisma.trainee.findMany({
+      where: { testId: testId },
+      include: { results: { orderBy: { createdAt: 'asc' } } }
+    });
+    
+    const mapped = trainees.map(t => ({
+      userid: {
+        name: t.name,
+        emailid: t.emailid,
+        organisation: t.organisation
+      },
+      score: t.results.length > 0 ? t.results[t.results.length - 1].score : 0,
+      _id: t.id
+    }));
+    
+    return res.json({ success: true, data: mapped });
+  } catch (err) {
+    logger.error(`Get test results list error: ${err.message}`);
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+export const TestDetails = async (req, res) => {
+  try {
+    const { _id } = req.body;
+    const test = await prisma.test.findUnique({
+      where: { id: _id },
+      include: { subjects: true, questions: { select: { id: true, body: true, weightage: true, type: true, explanation: true } } }
+    });
+    return res.json({ success: true, data: test });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+export const getCandidateDetails = async (req, res) => {
+  try {
+    const { _id } = req.body;
+    const trainee = await prisma.trainee.findUnique({
+      where: { id: _id },
+      include: { 
+        answerSheet: { include: { answers: true } }, 
+        results: { orderBy: { createdAt: 'asc' } },
+        feedback: true
+      }
+    });
+    return res.json({ success: true, data: trainee });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+export const checkTestName = async (req, res) => {
+  const { testname } = req.body;
+  const existing = await prisma.test.findFirst({ where: { title: testname } });
+  return res.json({ success: true, can_use: !existing });
+};
+
+export const getTestStats = async (req, res) => {
+  try {
+    const testId = req.body.testId || req.body._id || req.body.testid;
+    
+    if (!testId) {
+      return res.status(400).json({ success: false, message: "Test ID is required" });
+    }
+
+    const test = await prisma.test.findUnique({
+      where: { id: testId },
+      include: { 
+        questions: { select: { weightage: true } },
+        trainees: { 
+          include: { 
+            results: { orderBy: { createdAt: 'asc' } } 
+          } 
+        } 
+      }
+    });
+    
+    if (!test) return res.status(404).json({ success: false, message: "Test not found" });
+
+    // RBAC: Trainers can only view stats if they are assigned to at least one of its subjects
+    if (req.user.type === 'TRAINER') {
+      const u = await prisma.user.findUnique({ where: { id: req.user.id }, select: { subjectIds: true }});
+      const assigned = u.subjectIds || [];
+      const hasAccess = test.subjectIds.some(s => assigned.includes(s));
+      if (!hasAccess && test.subjectIds.length > 0) {
+        return res.status(403).json({ success: false, message: "Unauthorized: You do not have access to this test's stats." });
+      }
+    }
+
+    const maxMarks = test.questions.reduce((sum, q) => sum + q.weightage, 0) || 100;
+    const results = test.trainees
+      .map(t => t.results.length > 0 ? t.results[t.results.length - 1] : null)
+      .filter(r => r !== null);
+    
+    const stats = {
+      totalCandidates: test.trainees.length,
+      appeared: results.length,
+      maxMarks,
+      scoreDistribution: [], 
+      passFail: [
+        { name: 'Pass', value: 0 },
+        { name: 'Fail', value: 0 }
+      ],
+      percentageCategories: [
+        { name: '91% to 100%', value: 0 },
+        { name: '81% to 90%', value: 0 },
+        { name: '71% to 80%', value: 0 },
+        { name: '61% to 70%', value: 0 },
+        { name: '50% to 60%', value: 0 },
+        { name: 'Below 50%', value: 0 }
+      ]
+    };
+
+    const scoreMap = {};
+
+    results.forEach(r => {
+      const percentage = (r.score / maxMarks) * 100;
+      scoreMap[r.score] = (scoreMap[r.score] || 0) + 1;
+      if (percentage >= 50) stats.passFail[0].value++;
+      else stats.passFail[1].value++;
+      
+      if (percentage > 90) stats.percentageCategories[0].value++;
+      else if (percentage > 80) stats.percentageCategories[1].value++;
+      else if (percentage > 70) stats.percentageCategories[2].value++;
+      else if (percentage > 60) stats.percentageCategories[3].value++;
+      else if (percentage >= 50) stats.percentageCategories[4].value++;
+      else stats.percentageCategories[5].value++;
+    });
+
+    stats.scoreDistribution = Object.keys(scoreMap).map(s => ({
+      score: parseFloat(s),
+      count: scoreMap[s]
+    })).sort((a, b) => a.score - b.score);
+
+    return res.json({ success: true, data: stats });
+  } catch (err) {
+    logger.error(`Get test stats error: ${err.message}`);
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+export const evaluateAnswer = async (req, res) => {
+  try {
+    const { answerId, score, traineeId, testId } = req.body;
+
+    if (req.user.type === 'TRAINER') {
+      const u = await prisma.user.findUnique({ where: { id: req.user.id }, select: { subjectIds: true }});
+      const test = await prisma.test.findUnique({ where: { id: testId }, select: { subjectIds: true }});
+      if (!test) return res.status(404).json({ success: false, message: "Test not found" });
+      const hasAccess = test.subjectIds.some(s => (u.subjectIds || []).includes(s));
+      if (!hasAccess && test.subjectIds.length > 0) {
+         return res.status(403).json({ success: false, message: "Unauthorized" });
+      }
+    }
+
+    // Find Answer and Question to check max weightage
+    const answer = await prisma.answer.findUnique({
+      where: { id: answerId }
+    });
+
+    if (!answer) return res.status(404).json({ success: false, message: "Answer not found" });
+
+    const question = await prisma.question.findUnique({
+      where: { id: answer.questionId }
+    });
+
+    const finalScore = Math.min(Math.max(0, score), question.weightage);
+
+    await prisma.answer.update({
+      where: { id: answerId },
+      data: { score: finalScore, isEvaluated: true }
+    });
+
+    // Delete existing Result so gresult recalculates it
+    await prisma.result.deleteMany({
+      where: { traineeId }
+    });
+
+    // Recalculate
+    const newResult = await gresult(traineeId, testId);
+
+    return res.json({ success: true, message: "Score evaluated successfully", result: newResult });
+  } catch (err) {
+    logger.error(`Evaluate answer error: ${err.message}`);
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+export const sendResultEmail = async (req, res, next) => {
+  try {
+    const { testId, traineeId } = req.body;
+    
+    if (req.user.type !== 'ADMIN' && req.user.type !== 'TRAINER') {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const trainee = await prisma.trainee.findUnique({
+      where: { id: traineeId },
+      include: { 
+        test: { select: { title: true } },
+        results: { where: { testId: testId }, orderBy: { createdAt: 'desc' }, take: 1 }
+      }
+    });
+
+    if (!trainee || !trainee.results.length) {
+      return res.status(404).json({ success: false, message: 'Result not found for this candidate' });
+    }
+
+    const score = trainee.results[0].score;
+    const testTitle = trainee.test.title;
+
+    const html = `<div style='font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;'>
+      <h2 style='color: #4f46e5; border-bottom: 2px solid #4f46e5; padding-bottom: 10px;'>Exam Result Released</h2>
+      <p>Dear <strong>${trainee.name}</strong>,</p>
+      <p>Your official performance report for the <strong>${testTitle}</strong> examination is now available.</p>
+      <div style='background: #f8f9fa; padding: 30px; text-align: center; border-radius: 15px; margin: 20px 0;'>
+        <p style='margin: 0; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; font-size: 14px;'>Final Score</p>
+        <h1 style='margin: 10px 0; font-size: 48px; color: #111827;'>${score}</h1>
+      </div>
+      <p>This is an automated notification. For any queries regarding your score, please contact your trainer directly.</p>
+      <br/>
+      <p style='color: #9ca3af; font-size: 12px;'>Regards,<br/>Examination Management Team</p>
+    </div>`;
+
+    await sendmail(trainee.emailid, `Result: ${testTitle} - ${trainee.name}`, `Your score for ${testTitle} is ${score}`, html);
+
+    return res.json({ success: true, message: 'Result email sent successfully!' });
+  } catch (err) {
+    logger.error('Send result email error: ' + err.message);
+    return res.status(500).json({ success: false, message: 'Failed to send email' });
+  }
+};
 
 
- let getCandidates = (req,res,next)=>{
-    if(req.user.type==="TRAINER" || req.user.type==="ADMIN"){
-        var testid = req.body.id;
-        TraineeEnterModel.find({testid:testid},{testid:0})
-        .then((getCandidates)=>{
-            res.json({
-                success: true,
-                message :  "success",
-                data : getCandidates
-            })
-        }).catch((err)=>{
-            res.status(500).json({
-                success : false,
-                message : "Unable to get candidates!"
-            })
-        })
+export const sendAllResultsEmail = async (req, res, next) => {
+  try {
+    const { testId } = req.body;
+    
+    if (req.user.type !== 'ADMIN' && req.user.type !== 'TRAINER') {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
-    else{
-        res.status(401).json({
-            success : false,
-            message : "Permissions not granted!"
-        })
-    }
- }
 
- let beginTest = (req,res,next)=>{
-    if(req.user.type==="TRAINER" || req.user.type==="ADMIN"){
-        var id = req.body.id;
-        TestPaperModel.findOneAndUpdate({_id:id,testconducted : false},{testbegins:1,isRegistrationavailable:0},{new: true})
-        .then((data)=>{
-            if(data){
-                res.json({
-                    success : true,
-                    message : 'Test has been started.',
-                    data : {
-                        isRegistrationavailable: data.isRegistrationavailable,
-                        testbegins : data.testbegins,
-                        testconducted : data.testconducted,
-                        isResultgenerated : data.isResultgenerated
-                    }
-                })
-            }
-            else{
-                res.json({
-                    success : false,
-                    message : "Unable to start test."
-                })
-            }
-        }).catch((err)=>{
-            res.status(500).json({
-                success : false,
-                message : "Server Error"
-            })
-        })
-    }
-    else{
-        res.status(401).json({
-            success : false,
-            message : "Permissions not granted!"
-        })
-    }
- }
+    const test = await prisma.test.findUnique({
+      where: { id: testId },
+      include: { 
+        trainees: {
+          include: {
+            results: { where: { testId: testId }, orderBy: { createdAt: 'desc' }, take: 1 }
+          }
+        }
+      }
+    });
 
- let endTest = (req,res,next)=>{
-    if(req.user.type==="TRAINER" || req.user.type==="ADMIN"){
-        var id = req.body.id;
-        TestPaperModel.findOneAndUpdate({_id:id,testconducted:0,testbegins:1,isResultgenerated:0},{testbegins:false,testconducted:true, isResultgenerated:true},{
-            new: true
-          })
-        .then((info)=>{
-            if(info){
-                result(id,MaxMarks).then((sheet)=>{
-                    res.json({
-                        success : true,
-                        message : 'The test has ended.',
-                        data : {
-                            isRegistrationavailable : info.isRegistrationavailable,
-                            testbegins : info.testbegins,
-                            testconducted : info.testconducted,
-                            isResultgenerated : info.isResultgenerated
-                        }
-                    })
-                }).catch((error)=>{
-                    res.status(500).json({
-                        success : false,
-                        message : "Server Error"
-                    })
-                })
-            }
-            else{
-                res.json({
-                    success : false,
-                    message : "Invalid inputs!"
-                })
-            }  
-           
-        }).catch((err)=>{
-            res.status(500).json({
-                success : false,
-                message : "Server Error"
-            })
-        })
+    if (!test || !test.trainees.length) {
+      return res.status(404).json({ success: false, message: 'No candidates found for this test' });
     }
-    else{
-        res.status(401).json({
-            success : false,
-            message : "Permissions not granted!"
-        })
+
+    const testTitle = test.title;
+    let sentCount = 0;
+
+    for (const trainee of test.trainees) {
+      if (trainee.results.length > 0) {
+        const score = trainee.results[0].score;
+        const html = `<div style='font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;'>
+          <h2 style='color: #4f46e5; border-bottom: 2px solid #4f46e5; padding-bottom: 10px;'>Official Result: ${testTitle}</h2>
+          <p>Dear <strong>${trainee.name}</strong>,</p>
+          <p>Your official performance report for the <strong>${testTitle}</strong> examination has been released.</p>
+          <div style='background: #f8f9fa; padding: 30px; text-align: center; border-radius: 15px; margin: 20px 0;'>
+            <p style='margin: 0; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; font-size: 14px;'>Final Score</p>
+            <h1 style='margin: 10px 0; font-size: 48px; color: #111827;'>${score}</h1>
+          </div>
+          <p>This is an automated notification. For any queries regarding your score, please contact your trainer directly.</p>
+          <br/>
+          <p style='color: #9ca3af; font-size: 12px;'>Regards,<br/>Examination Management Team</p>
+        </div>`;
+
+        await sendmail(trainee.emailid, `Result Released: ${testTitle}`, `Your score is ${score}`, html);
+        sentCount++;
+      }
     }
- }
 
- let MaxMarks = (testid)=>{
-    return new Promise((resolve,reject)=>{
-        TestPaperModel.findOne({_id:testid},{questions:1})
-        .populate({
-            path : 'questions',
-            model : QuestionModel,
-            select : {'weightage' : 1}
-        })
-        .exec().then((Ma) => {
-            if(!Ma){
-                reject(new Error('Invalid testid'))
-            }else{
-                let m = 0;
-                Ma.questions.map((d,i)=>{
-                    m+=d.weightage;
-                })
-                resolve(m)
-            }
-        }).catch((err) => {
-            reject(err)
-        });
-
-    })
-}
-
-let MM = (req,res,next)=>{
-    var testid = req.body.testid;
-    if(req.user.type === 'TRAINER' || req.user.type === 'ADMIN'){
-        MaxMarks(testid).then((MaxM)=>{
-            res.json({
-                success : true,
-                message : 'Maximum Marks',
-                data : MaxM
-            })
-        }).catch((error)=>{
-            res.status(500).json({
-                success:false,
-                message:"Unable to get Max Marks",
-            })
-        })
-    }else{
-        res.status(401).json({
-            success : false,
-            message : "Permissions not granted!"
-        })
-    }
-}
- 
-let checkTestName =(req,res,next)=>{
-    var testName = req.body.testname;
-    if(req.user.type === 'TRAINER' || req.user.type === 'ADMIN'){
-        TestPaperModel.findOne({title:testName},{_id:1}).then((data)=>{
-            if(data){
-                res.json({
-                    success:true,
-                    can_use:false
-                })
-            }
-            else{
-                res.json({
-                    success:true,
-                    can_use:true
-                })
-            }
-        }).catch((error)=>{
-            res.status(500).json({
-                success:false,
-                message:"Server error"
-            })
-        })
-    }
-    else{
-        res.status(401).json({
-            success : false,
-            message : "Permissions not granted!"
-        })
-    }
-}
- 
-
- 
- 
-
-module.exports = {checkTestName,createEditTest,getSingletest,getAlltests,deleteTest,MaxMarks,MM,getCandidateDetails,basicTestdetails,TestDetails,getTestquestions,getCandidates,beginTest,endTest}
+    return res.json({ success: true, message: `Successfully released results to ${sentCount} candidates!` });
+  } catch (err) {
+    logger.error('Bulk email error: ' + err.message);
+    return res.status(500).json({ success: false, message: 'Failed to release all results' });
+  }
+};

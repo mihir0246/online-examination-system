@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #020617;
+  --color-foreground: #ffffff;
+  --color-primary: #0088cc;
+  --color-secondary: #00bfa5;
+}
+
+:root {
+  --sidebar-bg: #0d121b;
+  --header-bg: #020617;
+  --content-bg: #e2e8f0;
+  --primary-teal: #00bfa5;
+  --primary-blue: #0088cc;
+  --legacy-gradient: linear-gradient(135deg, #00bfa5 0%, #0088cc 100%);
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: 'Inter', sans-serif;
+  min-height: 100vh;
+}
+
+/* Legacy Theme Utilities */
+.legacy-gradient {
+  background: var(--legacy-gradient);
+}
+
+.legacy-card {
+  background: white;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+}
+
+.tech-pattern {
+  background-color: #020617;
+  background-image: 
+    radial-gradient(circle at 2px 2px, rgba(0, 191, 165, 0.05) 1px, transparent 0);
+  background-size: 40px 40px;
+}
+
+.cyber-circle {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 191, 165, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Ant Design Overrides to match legacy look */
+.ant-btn-primary {
+  background: #0056b3 !important;
+  border-radius: 2px !important;
+  font-weight: 500 !important;
+  box-shadow: none !important;
+}
+
+.ant-input-affix-wrapper,
+.ant-input {
+  border-radius: 2px !important;
+  border-color: #d1d5db !important;
+}
+
+.ant-card {
+  border-radius: 4px !important;
+}
+
+.ant-table-thead > tr > th {
+  background: #64748b !important;
+  color: white !important;
+  border-radius: 0 !important;
+  text-align: center !important;
+}
+
+.ant-menu-dark.ant-menu-inline .ant-menu-item-selected {
+  background-color: #0088cc !important;
+}
+
+.ant-menu-dark .ant-menu-item {
+  margin: 4px 0 !important;
+  width: 100% !important;
+}

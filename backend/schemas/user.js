@@ -31,7 +31,7 @@ var userschema = new mongoose.Schema({
     },
     status:{
         required : true,
-        default : 1,
+        default : true,
         type : Boolean
     },
     createdBy:{

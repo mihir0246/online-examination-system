@@ -1,17 +1,63 @@
-# Build directories
+# ──────────────────────────────────────────
+# Build artifacts
+# ──────────────────────────────────────────
 frontend/build/
+frontend-modern/.next/
+frontend-modern/out/
 backend/public/static/
 backend/public/precache-manifest.*.js
 backend/public/service-worker.js
 
-# Environment / Config
+# ──────────────────────────────────────────
+# Environment / Secrets (NEVER commit these)
+# ──────────────────────────────────────────
 .env
 .env.*
 !.env.example
 backend/config/default.json
 backend/config/production.json
 
+# ──────────────────────────────────────────
 # Dependencies
+# ──────────────────────────────────────────
 node_modules/
 frontend/node_modules/
 backend/node_modules/
+frontend-modern/node_modules/
+
+# ──────────────────────────────────────────
+# Logs & Debug
+# ──────────────────────────────────────────
+backend/logs/
+*.log
+npm-debug.log*
+
+# ──────────────────────────────────────────
+# Scratch / Dev utilities (not for review)
+# ──────────────────────────────────────────
+backend/scratch/
+backend/test-eval.js
+
+# ──────────────────────────────────────────
+# Graphify knowledge graph output (tooling artifact)
+# ──────────────────────────────────────────
+graphify-out/
+
+# ──────────────────────────────────────────
+# OS / Editor
+# ──────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ──────────────────────────────────────────
+# Next.js / Turbopack cache
+# ──────────────────────────────────────────
+.next/
+frontend-modern/.turbo/
+
+# ──────────────────────────────────────────
+# Prisma
+# ──────────────────────────────────────────
+# keep schema.prisma, ignore generated client if checked in separately

@@ -1,9 +1,25 @@
-var express = require("express");
-var router = express.Router();
+import express from "express";
+const router = express.Router();
+import {
+  stopRegistration,
+  Download,
+  getFeedBack
+} from "../services/registrationlink.js";
+import { getActiveTrainees } from "../services/redis.js";
 
-var stopRegistraion = require("../services/registrationlink");
+router.post("/registration/stop", stopRegistration);
+router.post('/result/download', Download);
+router.post('/get/feedbacks', getFeedBack);
 
-router.post("/registration/stop",stopRegistraion.stopRegistration)
-router.post('/result/download',stopRegistraion.Download)
-router.post('/get/feedbacks',stopRegistraion.getFeedBack)
-module.exports = router;
+// Plan 3.3: Real-time active trainee monitoring
+router.get('/active-trainees/:testId', async (req, res) => {
+  try {
+    const { testId } = req.params;
+    const activeIds = await getActiveTrainees(testId);
+    return res.json({ success: true, data: activeIds, count: activeIds.length });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Failed to fetch active trainees' });
+  }
+});
+
+export default router;

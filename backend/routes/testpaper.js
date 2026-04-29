@@ -1,21 +1,44 @@
-var express = require("express");
-var router = express.Router();
+import express from "express";
+const router = express.Router();
 
-var testpaper = require("../services/testpaper");
+import { 
+  checkTestName, 
+  createEditTest, 
+  getSingletest, 
+  getAlltests, 
+  deleteTest, 
+  basicTestdetails, 
+  getTestquestions, 
+  getCandidates, 
+  beginTest, 
+  endTest, 
+  getCandidateDetails, 
+  MM, 
+  getTestStats, 
+  TestDetails, 
+  getTestResultsList, 
+  evaluateAnswer,
+  sendResultEmail,
+  sendAllResultsEmail
+} from "../services/testpaper.js";
 
-router.post('/new/name/check',testpaper.checkTestName)
-router.post('/create',testpaper.createEditTest);
-router.get('/details/:_id',testpaper.getSingletest);
-router.post('/details/all',testpaper.getAlltests);
-router.post('/delete',testpaper.deleteTest);
-router.post('/basic/details',testpaper.basicTestdetails);
-router.post('/questions',testpaper.getTestquestions);
-router.post('/candidates',testpaper.getCandidates);
-router.post('/begin',testpaper.beginTest);
-router.post('/end',testpaper.endTest);
-router.post('/trainer/details',testpaper.TestDetails);
-router.post('/candidates/details',testpaper.getCandidateDetails);
-router.post('/max/marks',testpaper.MM);
+router.post('/new/name/check', checkTestName);
+router.post('/create', createEditTest);
+router.get('/details/:_id', getSingletest);
+router.post('/details/all', getAlltests);
+router.post('/delete', deleteTest);
+router.post('/basic/details', basicTestdetails);
+router.post('/questions', getTestquestions);
+router.post('/candidates', getCandidates);
+router.post('/begin', beginTest);
+router.post('/end', endTest);
+router.post('/trainer/details', TestDetails);
+router.post('/candidates/details', getCandidateDetails);
+router.post('/max/marks', MM);
+router.post('/stats', getTestStats);
+router.post('/results-list', getTestResultsList);
+router.post('/evaluate-answer', evaluateAnswer);
+router.post('/send-result-email', sendResultEmail);
+router.post('/send-all-results-email', sendAllResultsEmail);
 
-
-module.exports = router;
+export default router;

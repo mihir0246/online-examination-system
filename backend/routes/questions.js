@@ -1,15 +1,34 @@
-var express = require("express");
-var router = express.Router();
+import express from "express";
+const router = express.Router();
 
-var questions = require("../services/trainerFunctions");
+import { 
+  createQuestion, 
+  getAllQuestions, 
+  getSingleQuestion, 
+  deleteQuestion, 
+  deleteAllQuestions,
+  bulkCreateQuestions 
+} from "../services/trainerFunctions.js";
+import { extractQuestionsFromFile } from "../services/questionParser.js";
+import multer from "multer";
 
+const upload = multer();
 
-router.post('/create',questions.createQuestion);
-router.post('/details/all',questions.getAllQuestions);
-router.get('/details/:_id',questions.getSingleQuestion);
-router.post('/delete',questions.deleteQuestion);
+router.post('/create', createQuestion);
+router.post('/details/all', getAllQuestions);
+router.get('/details/:_id', getSingleQuestion);
+router.post('/delete', deleteQuestion);
+router.post('/delete-all', deleteAllQuestions);
+router.post('/bulk-create', bulkCreateQuestions);
 
+router.post('/upload-parse', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded" });
+    const parsedData = await extractQuestionsFromFile(req.file.buffer, req.file.mimetype);
+    res.json({ success: true, data: parsedData });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
 
-
-module.exports=router;
-
+export default router;

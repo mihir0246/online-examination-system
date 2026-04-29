@@ -1,59 +1,156 @@
-const UserModel = require("../models/user");
-const passport = require("../services/passportconf");
-const jwt = require('jsonwebtoken');
-const config = require('config');
+import prisma from "./prisma.js";
+import passport from "./passportconf.js";
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import { z } from 'zod';
+import logger from "./logger.js";
+import { auditLog, AuditEvent } from "./auditLog.js";
 
-const userlogin = (req, res, next) => {
-    req.check('emailid', 'Invalid email address').isEmail().notEmpty();
-    req.check('password', 'Invalid password').isLength({ min: 5, max: 100 });
-    const errors = req.validationErrors();
-    if (errors) {
-        res.json({
-            success: false,
-            message: 'Invalid inputs: ' + errors.map(e => e.msg).join(', '),
-            errors: errors
-        });
-    } else {
-        passport.authenticate('login', { session: false }, (err, user, info) => {
-            if (err) {
-                return res.json({ success: false, message: "Database Error: " + (err.message || "Please try again later.") });
-            }
-            if (!user) {
-                return res.json(info);
-            } else {
-                const token = jwt.sign({ _id: user._id }, process.env.JWT_SECRET || config.get('jwt.secret'), { expiresIn: 5000000 });
-                // Set the token as an HttpOnly cookie
-                res.cookie('Token', token, {
-                    httpOnly: true,
-                    secure: process.env.NODE_ENV === 'production',
-                    sameSite: 'Lax',
-                    maxAge: 5000000 * 1000 // 5,000,000 seconds in milliseconds
-                });
+const loginSchema = z.object({
+  emailid: z.string().email("Invalid email format"),
+  password: z.string().min(5, "Password must be at least 5 characters")
+});
 
-                res.json({
-                    success: true,
-                    message: "login successful",
-                    user: {
-                        name: user.name,
-                        type: user.type,
-                        _id: user._id,
-                        emailid: user.emailid,
-                        contact: user.contact
-                    },
-                    token: token
-                });
-            }
-        })(req, res, next);
-    }
-};
+const signupSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  emailid: z.string().email("Invalid email format"),
+  password: z.string().min(5, "Password must be at least 5 characters"),
+  contact: z.string().length(10, "Contact must be 10 digits")
+});
 
-const userlogout = (req, res) => {
-    res.clearCookie('Token');
-    res.json({
-        success: true,
-        message: "logout successful"
+export const userlogin = (req, res, next) => {
+  const validation = loginSchema.safeParse(req.body);
+  
+  if (!validation.success) {
+    return res.status(400).json({
+      success: false,
+      message: validation.error.issues.map(e => e.message).join(", ")
     });
+  }
+
+  passport.authenticate('login', { session: false }, (err, user, info) => {
+    if (err) {
+      logger.error(`Login error: ${err.message}`);
+      return res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+    
+    if (!user) {
+      // Plan 3.1: Audit failed login
+      const emailid = req.body?.emailid || 'unknown';
+      auditLog({ event: AuditEvent.USER_LOGIN, metadata: { success: false, emailid }, ip: req.ip });
+      return res.status(401).json(info);
+    }
+
+    const token = jwt.sign(
+      { id: user.id, email: user.emailid, type: user.type }, 
+      process.env.JWT_SECRET || "default-secret-change-me", 
+      { expiresIn: '24h' }
+    );
+
+    // Secure HttpOnly cookie
+    res.cookie('Token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Lax',
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    });
+
+    // Plan 3.1: Audit successful login
+    auditLog({ event: AuditEvent.USER_LOGIN, userId: user.id, metadata: { success: true, type: user.type }, ip: req.ip });
+
+    res.json({
+      success: true,
+      message: "Login successful",
+      user: {
+        id: user.id,
+        name: user.name,
+        type: user.type,
+        emailid: user.emailid
+      },
+      token: token
+    });
+  })(req, res, next);
 };
 
-module.exports = { userlogin, userlogout };
+export const userSignup = async (req, res) => {
+  const validation = signupSchema.safeParse(req.body);
+  
+  if (!validation.success) {
+    return res.status(400).json({
+      success: false,
+      message: validation.error.issues.map(e => e.message).join(", ")
+    });
+  }
+
+  try {
+    const { name, emailid, password, contact } = validation.data;
+    const existing = await prisma.user.findUnique({ where: { emailid } });
+    
+    if (existing) {
+      return res.status(409).json({ success: false, message: "This email already exists!" });
+    }
+
+    const hash = await bcrypt.hash(password, 10);
+    await prisma.user.create({
+      data: {
+        name,
+        emailid,
+        password: hash,
+        contact,
+        type: 'TRAINER'
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: "Trainer account created successfully! Please login."
+    });
+  } catch (err) {
+    logger.error(`Signup error: ${err.message}`);
+    return res.status(500).json({ success: false, message: "Server Error during signup" });
+  }
+};
+
+export const userlogout = async (req, res) => {
+  try {
+    // Extract token from cookie or Authorization header
+    const token = req.cookies?.['Token'] || 
+      req.headers?.authorization?.replace('Bearer ', '');
+
+    if (token) {
+      // Decode to find remaining TTL (no verify needed — we just need the exp claim)
+      let ttl = 24 * 60 * 60; // fallback: 24h
+      try {
+        const decoded = jwt.decode(token);
+        if (decoded?.exp) {
+          const remaining = decoded.exp - Math.floor(Date.now() / 1000);
+          if (remaining > 0) ttl = remaining;
+        }
+      } catch (_) { /* use fallback TTL */ }
+
+      // Blacklist token in Redis for its remaining lifetime
+      const { blacklistToken } = await import('./redis.js');
+      await blacklistToken(token, ttl);
+    }
+  } catch (err) {
+    logger.error(`Logout blacklist error: ${err.message}`);
+    // Still proceed with logout even if blacklisting fails
+  }
+
+  // Plan 3.1: Audit logout
+  if (token) {
+    auditLog({ event: AuditEvent.USER_LOGOUT, ip: req.ip, metadata: { tokenRevoked: true } });
+  }
+
+  res.clearCookie('Token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'Lax',
+    path: '/'
+  });
+  res.json({
+    success: true,
+    message: "Logout successful"
+  });
+};
 

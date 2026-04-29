@@ -1,134 +1,106 @@
-var TraineeEnterModel = require("../models/trainee");
-var TestPaperModel = require("../models/testpaper");
-var QuestionModel = require("../models/questions");
-var options = require("../models/option");
-var AnswersheetModel = require("../models/answersheet");
-var AnswersModel = require("../models/answers");
-var subResultsModel = require("../models/subResults");
-var ResultModel = require("../models/results");
+import prisma from "./prisma.js";
+import logger from "./logger.js";
 
-let generateResults = (req,res,next)=>{
-    var userid = req.body.userid;
-    var testid = req.body.testid;
+export const generateResults = async (req, res, next) => {
+  try {
+    const { userid, testid } = req.body;
+    const result = await gresult(userid, testid);
+    return res.json({
+      success: true,
+      message: "Result generated successfully",
+      result: result
+    });
+  } catch (error) {
+    logger.error(`Result generation error: ${error.message}`);
+    return res.status(500).json({ success: false, message: "Unable to generate result" });
+  }
+};
+
+export const gresult = async (uid, tid) => {
+  const ansMap = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
+  logger.info(`Recalculating result for trainee ${uid} on test ${tid}`);
+
+  const answersheet = await prisma.answerSheet.findUnique({
+    where: { traineeId: uid },
+    include: {
+      test: {
+        include: {
+          questions: {
+            include: { options: true }
+          }
+        }
+      },
+      answers: true
+    }
+  });
+
+  if (!answersheet || !answersheet.completed) {
+    throw new Error("Exam not completed or invalid session");
+  }
+
+  let totalScore = 0;
+  const detailedResults = answersheet.test.questions.map(q => {
+    const userAns = answersheet.answers.find(a => a.questionId === q.id);
+    const chosenOptions = userAns ? userAns.options : [];
     
-    gresult(userid,testid).then((result)=>{
-        res.json({
-            success:true,
-            message:"Result generated successfully",
-            result:result
-        })
-    }).catch((error)=>{
-        res.status(500).json({
-            success:false,
-            message:"Unable to generate result",
-        })
-    })
-}
+    let isCorrect = false;
+    let givenAnsLabels = [];
+    let correctAnsLabels = [];
+    let scoreAwarded = 0;
 
+    if (q.type === 'TEXT') {
+      // Descriptive question: manually evaluated
+      givenAnsLabels = chosenOptions;
+      if (userAns && userAns.isEvaluated) {
+        scoreAwarded = userAns.score || 0;
+        isCorrect = scoreAwarded > 0;
+      } else {
+        // Pending evaluation
+        scoreAwarded = 0;
+        isCorrect = false;
+      }
+    } else {
+      // MCQ Question: auto evaluated
+      const correctOptionIndices = q.options
+        .map((opt, idx) => opt.isAnswer ? idx : -1)
+        .filter(idx => idx !== -1);
+      
+      const chosenOptionIndices = q.options
+        .map((opt, idx) => chosenOptions.includes(opt.optbody) ? idx : -1)
+        .filter(idx => idx !== -1);
 
+      correctAnsLabels = correctOptionIndices.map(idx => ansMap[idx] || `Opt${idx + 1}`);
+      givenAnsLabels = chosenOptionIndices.map(idx => ansMap[idx] || `Opt${idx + 1}`);
 
-let gresult = (uid,tid)=>{
-    return new Promise((resolve,reject)=>{
-        const ansMap = ['A','B','C','D','E'];
-        ResultModel.findOne({userid : uid,testid: tid})
-        .populate('result')
-        .exec().then((results)=>{
-            if(!results){
-                AnswersheetModel.findOne({userid:uid,testid:tid,completed : true},{testid:0,userid:0,startTime:0,completed:0})
-                .populate({ path: 'questions',
-                    select:{
-                        'explanation':1,
-                        'weightage':1,
-                        'body': 1
-                    },
-                    populate: {  
-                        path: 'options',
-                        model: options,
-                        select:{
-                            'isAnswer':1
-                        }
-                    }
-                })
-                .populate('answers','questionid chosenOption')
-                .exec().then((answersheet)=>{
-                    if(!answersheet){
-                        reject(new Error("invalid Inputs"))
-                    }
-                    else{
-                        var Score = 0;
-                        var questions = answersheet.questions;
-                        var answers = answersheet.answers;
-                        let subResults=questions.map((d,i)=>{
-                            var ans =answers[i].chosenOption;
-                            var correctAns = []
-                            var givenAns = []
-                            d.options.map((dd,ii)=>{
-                                if(dd.isAnswer){
-                                    correctAns.push(ansMap[ii])
-                                }
-                                for(var m=0;m<ans.length;m++){
-                                    if(String(ans[m])==String(dd._id)){
-                                        givenAns.push(ansMap[ii])
-                                    }
-                                }
-                            })
-                            var l1 = correctAns.length;
-                            var l2 = givenAns.length;
-                            var iscorrect = false;
-                            if(l1==l2){
-                                    var count = 0;
-                                for(var p=0;p<l1;p++){
-                                    for(var q=0;q<l2;q++){
-                                        if(correctAns[p]==givenAns[q]){
-                                            count++;
-                                            break;
-                                        }
-                
-                                    }
-                                }
-                                if(count==l1){
-                                    iscorrect = true;
-                                    Score+=d.weightage
-                                }
-                            }
-                            var tmp={
-                                qid : d._id,
-                                weightage:d.weightage,
-                                correctAnswer:correctAns,
-                                givenAnswer:givenAns,
-                                explanation:d.explanation,
-                                iscorrect : iscorrect
-                            }
-    
-                            return(tmp)
-                        })
-                        subResultsModel.insertMany(subResults).then((subres) => {
-                            var tempdata = ResultModel({
-                                testid : tid,
-                                userid:uid,
-                                answerSheetid : answersheet._id,
-                                result : subres,
-                                score:Score
-                            });
-                            tempdata.save().then((data)=>{
-                                resolve(data)
-                            }).catch((err)=>{
-                                reject(err)
-                            })
-                        }).catch((err) => {
-                            reject(err)
-                        });
-                    }
-                }).catch((err) => {
-                    reject(err)
-                });
-            }else{
-                resolve(results)
-            }
-        }).catch((err) => {
-            reject(err)
-        });   
-    })
-}
+      isCorrect = correctAnsLabels.length === givenAnsLabels.length && 
+                  correctAnsLabels.length > 0 &&
+                  correctAnsLabels.every(val => givenAnsLabels.includes(val));
 
-module.exports = {generateResults,gresult}
+      scoreAwarded = isCorrect ? q.weightage : 0;
+    }
+
+    totalScore += scoreAwarded;
+    logger.info(`Question ${q.id} type ${q.type}: awarded ${scoreAwarded} (total: ${totalScore})`);
+
+    return {
+      questionId: q.id,
+      isCorrect,
+      givenAnswer: givenAnsLabels,
+      correctAnswer: correctAnsLabels,
+      weightage: q.weightage,
+      score: scoreAwarded,
+      isEvaluated: q.type === 'TEXT' ? (userAns?.isEvaluated || false) : true
+    };
+  });
+
+  // Store summary result
+  const finalResult = await prisma.result.create({
+    data: {
+      score: totalScore,
+      traineeId: uid
+    }
+  });
+
+  return { ...finalResult, details: detailedResults };
+};

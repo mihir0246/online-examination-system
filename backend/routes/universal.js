@@ -1,13 +1,15 @@
-var express = require("express");
-var router = express.Router();
+import express from "express";
+const router = express.Router();
 
-var universal = require('../services/universalsubjectFunctions');
+import { 
+  createEditsubject, 
+  getAllSubjects, 
+  getSingleSubject 
+} from "../services/universalsubjectFunctions.js";
 
-router.post('/create',universal.createEditsubject);
-router.get('/details/all',universal.getAllSubjects);
-router.get('/details/:_id',universal.getSingleSubject);
+router.post('/create', createEditsubject);
+router.get('/details/all', getAllSubjects);
+router.get('/details/:_id', getSingleSubject);
 
 
-
-
-module.exports=router;
+export default router;

@@ -1,0 +1,178 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  password  String
+  emailid   String   @unique
+  contact   String   @unique
+  avatar    String?
+  type      String   @default("TRAINER")
+  status    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  createdBy   User?   @relation("UserToUser", fields: [createdById], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  createdById String? @db.ObjectId
+  created     User[]  @relation("UserToUser")
+
+  questions Question[]
+  tests     Test[]
+
+  subjects   Subject[] @relation(fields: [subjectIds], references: [id])
+  subjectIds String[]  @db.ObjectId
+}
+
+model Subject {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  topic     String   @unique
+  status    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  questions Question[]
+  tests     Test[]     @relation(fields: [testIds], references: [id])
+  testIds   String[]   @db.ObjectId
+
+  users     User[]     @relation(fields: [userIds], references: [id])
+  userIds   String[]   @db.ObjectId
+}
+
+model Question {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  body        String
+  type        String   @default("MCQ") // MCQ or TEXT
+  weightage   Int      @default(1)
+  anscount    Int      @default(1)
+  explanation String
+  quesimg     String?
+  difficulty  Int      @default(0)
+  status      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  options Option[]
+  
+  subject   Subject @relation(fields: [subjectId], references: [id])
+  subjectId String  @db.ObjectId
+  
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+  createdById String? @db.ObjectId
+
+  tests   Test[]   @relation(fields: [testIds], references: [id])
+  testIds String[] @db.ObjectId
+}
+
+model Option {
+  id        String  @id @default(auto()) @map("_id") @db.ObjectId
+  optbody   String?
+  optimg    String?
+  isAnswer  Boolean @default(false)
+  
+  question   Question @relation(fields: [questionId], references: [id])
+  questionId String   @db.ObjectId
+}
+
+model Test {
+  id                     String   @id @default(auto()) @map("_id") @db.ObjectId
+  type                   String
+  title                  String
+  duration               Int
+  organisation           String?
+  difficulty             Int      @default(1)
+  testbegins             Boolean  @default(false)
+  status                 Boolean  @default(true)
+  isRegistrationavailable Boolean  @default(true)
+  testconducted          Boolean  @default(false)
+  isResultgenerated      Boolean  @default(false)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  questions   Question[] @relation(fields: [questionIds], references: [id])
+  questionIds String[]   @db.ObjectId
+  
+  subjects   Subject[] @relation(fields: [subjectIds], references: [id])
+  subjectIds String[]  @db.ObjectId
+  
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+  createdById String? @db.ObjectId
+
+  trainees    Trainee[]
+  answerSheets AnswerSheet[]
+  feedbacks    Feedback[]
+}
+
+model Feedback {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  rating    Float
+  comment   String
+  createdAt DateTime @default(now())
+  
+  trainee   Trainee @relation(fields: [traineeId], references: [id])
+  traineeId String  @unique @db.ObjectId
+  
+  test      Test    @relation(fields: [testId], references: [id])
+  testId    String  @db.ObjectId
+}
+
+model Trainee {
+  id           String @id @default(auto()) @map("_id") @db.ObjectId
+  name         String
+  emailid      String
+  contact      String
+  organisation String
+  location     String
+  
+  test   Test   @relation(fields: [testId], references: [id], onDelete: Cascade)
+  testId String @db.ObjectId
+
+  answerSheet AnswerSheet?
+  results     Result[]
+  feedback    Feedback?
+
+  @@index([testId])
+}
+
+model AnswerSheet {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  startTime Int
+  completed Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  test   Test   @relation(fields: [testId], references: [id])
+  testId String @db.ObjectId
+  
+  trainee   Trainee @relation(fields: [traineeId], references: [id])
+  traineeId String  @unique @db.ObjectId
+
+  answers Answer[]
+}
+
+model Answer {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  questionId String   @db.ObjectId
+  options    String[] // Array of selected option texts or answer text
+  
+  answerSheet   AnswerSheet @relation(fields: [answerSheetId], references: [id])
+  answerSheetId String      @db.ObjectId
+  isBookmarked  Boolean     @default(false)
+  score         Float?
+  isEvaluated   Boolean     @default(false)
+}
+
+model Result {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  score     Float
+  createdAt DateTime @default(now())
+  
+  trainee   Trainee @relation(fields: [traineeId], references: [id])
+  traineeId String  @db.ObjectId
+}

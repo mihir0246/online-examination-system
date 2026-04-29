@@ -1,14 +1,17 @@
-var express = require("express");
-var router = express.Router();
+import express from "express";
+const router = express.Router();
 
-var admin = require("../services/adminFunctions");
+import { 
+  trainerRegister, 
+  getAllTrainers, 
+  getSingleTrainer, 
+  removeTrainer 
+} from "../services/adminFunctions.js";
 
-//create new Trainer
-router.post('/trainer/create',admin.trainerRegister);
-router.get('/trainer/details/all',admin.getAllTrainers);
-router.get('/trainer/details/:_id',admin.getSingleTrainer);
-router.post('/trainer/remove',admin.removeTrainer);
+// Create new Trainer
+router.post('/trainer/create', trainerRegister);
+router.get('/trainer/details/all', getAllTrainers);
+router.get('/trainer/details/:_id', getSingleTrainer);
+router.post('/trainer/remove', removeTrainer);
 
-
-
-module.exports=router;
+export default router;

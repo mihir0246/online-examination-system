@@ -11,7 +11,7 @@ var subjectschema = new mongoose.Schema({
     },
     status:{
         type: Boolean,
-        default : 1,
+        default : true,
         required : true
     }
 },

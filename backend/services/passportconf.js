@@ -1,95 +1,111 @@
-var passport = require("passport");
-var LocalStrategy = require("passport-local").Strategy;
-const bcrypt = require('bcryptjs');
-const saltRounds = 10;
-var config = require("config");
-var JwtStrategy = require('passport-jwt').Strategy,
-    ExtractJwt = require('passport-jwt').ExtractJwt;
-var UserModel =  require("../models/user");
+import passport from "passport";
+import passportLocal from "passport-local";
+const { Strategy: LocalStrategy } = passportLocal;
+import bcrypt from 'bcryptjs';
+import passportJwt from 'passport-jwt';
+const { Strategy: JwtStrategy, ExtractJwt } = passportJwt;
+import prisma from "./prisma.js";
+import logger from "./logger.js";
+import { isTokenBlacklisted } from "./redis.js";
 
-
-
-//user login local strategy
-passport.use('login',new LocalStrategy({
+// User Login Local Strategy
+passport.use('login', new LocalStrategy({
   usernameField: 'emailid',
-  passwordField : 'password',
-  passReqToCallback : true 
-  },
-  function(req,emailid, password, done) {
-    UserModel.findOne({ 'emailid' : emailid, 'status' : true }).then((user) => {
-      if (!user) {
-          return done(null, false,{
-              success: false,
-              message: "Invalid emailid"
-          });
-      }
-      else{
-          bcrypt.compare(password, user.password).then(function(res) {
-            if(res){
-              return done(null, user,{
-                success: true,
-                message: "logged in successfully"
-              });
-            }
-            else{
-              return done(null, false,{
-                success: false,
-                message: "Invalid Password"
-              });
-            }
-          });
-        }
-    }).catch((err) => {
-        return done(err,false,{
-            success: false,
-            message: "Server Error"
-        });
+  passwordField: 'password',
+  passReqToCallback: true
+}, async (req, emailid, password, done) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { emailid, status: true }
+    });
+
+    if (!user) {
+      return done(null, false, {
+        success: false,
+        message: "Invalid credentials"
+      });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (isMatch) {
+      return done(null, user, {
+        success: true,
+        message: "Logged in successfully"
+      });
+    } else {
+      return done(null, false, {
+        success: false,
+        message: "Invalid credentials"
+      });
+    }
+  } catch (err) {
+    logger.error(`Login error for ${emailid}: ${err.message}`);
+    return done(err, false, {
+      success: false,
+      message: "Authentication error"
     });
   }
-));
-
-
-
-
-// Combined extractor to support both Authorization header and HttpOnly cookie
-const cookieExtractor = (req) => {
-    let token = null;
-    if (req && req.cookies) {
-        token = req.cookies['Token'];
-    }
-    return token;
-};
-
-//options jwt
-var opts = {}
-opts.jwtFromRequest = ExtractJwt.fromExtractors([
-    ExtractJwt.fromAuthHeaderAsBearerToken(),
-    cookieExtractor
-]);
-opts.secretOrKey = process.env.JWT_SECRET || config.get('jwt.secret');
-
-passport.use('user-token',new JwtStrategy(opts, function(jwt_payload, done) {
-  UserModel.findById(jwt_payload._id).then((user) => {
-        if (user) {
-            return done(null, user,{
-                success: true,
-                message: "Successfull"
-            }); 
-        } else {
-            return done(null, false,{
-                success: false,
-                message: "Authentication Failed"
-            });
-        }
-    }).catch((err) => {
-        return done(err, false,{
-            success: false,
-            message: "Server Error"
-        }); 
-    });
 }));
 
+// Combined extractor: Authorization header OR HttpOnly cookie
+const cookieExtractor = (req) => {
+  if (req && req.cookies) {
+    return req.cookies['Token'] || null;
+  }
+  return null;
+};
 
+const tokenExtractors = [
+  ExtractJwt.fromAuthHeaderAsBearerToken(),
+  cookieExtractor
+];
 
+const opts = {
+  jwtFromRequest: ExtractJwt.fromExtractors(tokenExtractors),
+  secretOrKey: process.env.JWT_SECRET || "default-secret-change-me",
+  // Plan 2.4: Pass req so we can extract the raw token for blacklist check
+  passReqToCallback: true
+};
 
-module.exports = passport
+// --- Plan 2.4: JWT Strategy with Redis blacklist enforcement ---
+passport.use('user-token', new JwtStrategy(opts, async (req, jwt_payload, done) => {
+  try {
+    // Extract the raw token to check against blacklist
+    const rawToken = ExtractJwt.fromExtractors(tokenExtractors)(req);
+
+    if (rawToken) {
+      const blacklisted = await isTokenBlacklisted(rawToken);
+      if (blacklisted) {
+        logger.warn(`Blocked blacklisted token for user ${jwt_payload.id}`);
+        return done(null, false, {
+          success: false,
+          message: "Session has been revoked. Please log in again."
+        });
+      }
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: jwt_payload.id }
+    });
+
+    if (user) {
+      return done(null, user, {
+        success: true,
+        message: "Authorized"
+      });
+    } else {
+      return done(null, false, {
+        success: false,
+        message: "Unauthorized"
+      });
+    }
+  } catch (err) {
+    logger.error(`JWT validation error: ${err.message}`);
+    return done(err, false, {
+      success: false,
+      message: "Session error"
+    });
+  }
+}));
+
+export default passport;

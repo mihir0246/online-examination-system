@@ -1,123 +1,137 @@
-//view all subjects and single subject
-let SubjectModel = require("../models/subject");
+import prisma from "./prisma.js";
+import { z } from "zod";
+import logger from "./logger.js";
 
+const subjectSchema = z.object({
+  topic: z.string().min(2, "Topic must be at least 2 characters"),
+  _id: z.string().optional().nullable()
+});
 
-let createEditsubject = (req,res,next)=>{
-    var _id = req.body._id || null;
-    if(req.user.type==='ADMIN'){
-    req.check('topic', `invalid topic`).notEmpty();
-    var errors = req.validationErrors()
-    if(errors){
-        res.json({
-            success : false,
-            message : 'Invalid inputs',
-            errors : errors
-        })
-    }
-    else {
-        var topic =  req.body.topic;
-        if(_id!=null){
-            SubjectModel.findOneAndUpdate({
-                _id : _id,
-
-            },
-            {
-                topic : topic,
-            }).then(()=>{
-                res.json({
-                    success: true,
-                    message :  "Subject name has been changed"
-                })
-            }).catch((err)=>{
-                res.status(500).json({
-                    success : false,
-                    message : "Unable to change Subject name"
-            })
-        })
-
-    }
-        else{   
-            SubjectModel.findOne({topic : topic}).then((info)=>{
-                if(!info){
-                    var tempdata = SubjectModel({
-                        topic : topic,
-                        createdBy : req.user._id
-                    })
-                    tempdata.save().then(()=>{
-                        res.json({
-                            success : true,
-                            message : `New subject created successfully!`
-                        })
-                    }).catch((err)=>{
-                        res.status(500).json({
-                            success : false,
-                            message : "Unable to create new subject!"
-                        })
-                    })
-                }
-                else{
-                    res.json({
-                        success : false,
-                        message : `This subject already exists!`
-                    })
-                }   
-
-            })
-        }
-    }
+export const createEditsubject = async (req, res, next) => {
+  const validation = subjectSchema.safeParse(req.body);
+  
+  if (!validation.success) {
+    return res.status(400).json({
+      success: false,
+      message: validation.error.errors.map(e => e.message).join(", ")
+    });
   }
 
+  if (req.user.type !== 'ADMIN') {
+    return res.status(401).json({
+      success: false,
+      message: "Permissions not granted! Admin access required."
+    });
+  }
 
-    else{
-        res.status(401).json({
-            success : false,
-            message : "Permissions not granted!"
-        })
+  try {
+    const { topic, _id } = validation.data;
 
+    if (_id) {
+      await prisma.subject.update({
+        where: { id: _id },
+        data: { topic }
+      });
+      return res.json({
+        success: true,
+        message: "Subject updated successfully"
+      });
+    } else {
+      const existing = await prisma.subject.findUnique({
+        where: { topic }
+      });
+
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: "This subject already exists!"
+        });
+      }
+
+      await prisma.subject.create({
+        data: {
+          topic,
+          testIds: [] // Initialize with empty array for MongoDB relations
+        }
+      });
+
+      return res.json({
+        success: true,
+        message: "New subject created successfully!"
+      });
     }
-}
+  } catch (err) {
+    logger.error(`Subject operation error: ${err.message}`);
+    return res.status(500).json({
+      success: false,
+      message: "An internal server error occurred"
+    });
+  }
+};
 
+export const getAllSubjects = async (req, res, next) => {
+  try {
+    // RBAC: Trainers only see assigned subjects
+    if (req.user.type === 'TRAINER') {
+      const user = await prisma.user.findUnique({ 
+        where: { id: req.user.id }, 
+        include: { 
+          subjects: { 
+            where: { status: true } 
+          } 
+        }
+      });
+      
+      return res.json({
+        success: true,
+        message: "Success",
+        data: user?.subjects || []
+      });
+    }
 
+    // Admins see all active subjects
+    const subjects = await prisma.subject.findMany({
+      where: { status: true }
+    });
 
+    return res.json({
+      success: true,
+      message: "Success",
+      data: subjects
+    });
+  } catch (err) {
+    logger.error(`Fetch subjects error: ${err.message}`);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to fetch subject data"
+    });
+  }
+};
 
-            
+export const getSingleSubject = async (req, res, next) => {
+  try {
+    const { _id } = req.params;
+    const subject = await prisma.subject.findUnique({
+      where: { id: _id, status: true }
+    });
 
-let getAllSubjects = (req,res,next)=>{
-    SubjectModel.find({status : 1},{createdAt: 0, updatedAt : 0})
-    .populate('createdBy', 'name')
-    
-    .exec().then((subject) => {
-        res.json({
-            success : true,
-            message : `Success`,
-            data : subject
-        })   
-    }).catch((err) => {
-        res.status(500).json({
-            success : false,
-            message : "Unable to fetch data"
-        })
-    });        
+    if (!subject) {
+      return res.status(404).json({
+        success: false,
+        message: "Subject not found"
+      });
+    }
 
-}
-
-let getSingleSubject = (req,res,next)=>{
-    let id = req.params._id;
-    SubjectModel.find({_id: id},{createdAt: 0, updatedAt : 0,status : 0})
-    .populate('createdBy', 'name')
-    .exec().then((subject) => {
-        res.json({
-            success : true,
-            message : `Success`,
-            data : subject
-        })   
-    }).catch((err) => {
-        res.status(500).json({
-            success : false,
-            message : "Unable to fetch data"
-        })
-    });        
-}
-
-    module.exports = { createEditsubject ,getAllSubjects, getSingleSubject}
-    
+    return res.json({
+      success: true,
+      message: "Success",
+      data: [subject] // Maintaining legacy array format for compatibility
+    });
+  } catch (err) {
+    logger.error(`Fetch single subject error: ${err.message}`);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to fetch subject details"
+    });
+  }
+};

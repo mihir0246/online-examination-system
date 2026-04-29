@@ -1,11 +1,11 @@
-var express = require("express");
-var router = express.Router();
-var login = require("../services/login");
+import express from "express";
+const router = express.Router();
+import { userlogin, userlogout } from "../services/login.js";
 
 
-router.post('/',login.userlogin);
-router.post('/logout',login.userlogout);
+router.post('/', userlogin);
+router.post('/logout', userlogout);
 
 
 
-module.exports=router;
+export default router;

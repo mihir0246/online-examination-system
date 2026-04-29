@@ -1,12 +1,10 @@
-const mongoose = require('mongoose');
+const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
-const config = require('config');
-const UserModel = require('./models/user');
+const prisma = new PrismaClient();
+require('dotenv').config();
 
 const seedAdmin = async () => {
     try {
-        await mongoose.connect(config.get('mongodb.connectionString'));
-
         const adminEmail = process.env.ADMIN_EMAIL || 'admin@gmail.com';
         const adminPassword = process.env.ADMIN_PASSWORD || 'admin';
 
@@ -15,32 +13,36 @@ const seedAdmin = async () => {
         }
 
         const hashedPassword = await bcrypt.hash(adminPassword, 10);
-
         const resetPassword = process.env.RESET_ADMIN_PASSWORD === 'true';
 
-        const updateData = {
-            $setOnInsert: {
-                name: 'Admin',
-                emailid: adminEmail,
-                password: hashedPassword,
-                contact: '0000000000',
-                type: 'ADMIN',
-                status: true
-            }
-        };
+        const existing = await prisma.user.findUnique({
+            where: { emailid: adminEmail }
+        });
 
-        if (resetPassword) {
-            updateData.$set = { password: hashedPassword };
-            console.log('RESET_ADMIN_PASSWORD is set to true. Admin password will be reset.');
+        if (existing) {
+            if (resetPassword) {
+                await prisma.user.update({
+                    where: { emailid: adminEmail },
+                    data: { password: hashedPassword }
+                });
+                console.log('Admin password reset successfully!');
+            } else {
+                console.log('Admin user already exists. Use RESET_ADMIN_PASSWORD=true to update password.');
+            }
+        } else {
+            await prisma.user.create({
+                data: {
+                    name: 'Admin',
+                    emailid: adminEmail,
+                    password: hashedPassword,
+                    contact: '0000000000',
+                    type: 'ADMIN',
+                    status: true
+                }
+            });
+            console.log('Admin user created successfully!');
         }
 
-        await UserModel.findOneAndUpdate(
-            { emailid: adminEmail },
-            updateData,
-            { upsert: true, new: true }
-        );
-
-        console.log('Admin user seeded successfully!');
         process.exit(0);
     } catch (err) {
         console.error('Error seeding admin:', err);
@@ -49,3 +51,4 @@ const seedAdmin = async () => {
 };
 
 seedAdmin();
+

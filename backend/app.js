@@ -1,121 +1,157 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
+import express from 'express';
+import helmet from 'helmet';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import morgan from 'morgan';
+import bodyParser from 'body-parser';
+import cookieParser from 'cookie-parser';
+import cors from 'cors';
+import { doubleCsrf } from "csrf-csrf";
+import { createServer } from "http";
+import mongoose from 'mongoose';
+
+import passport from "./services/passportconf.js";
+import { init as initSocket } from "./services/socket.js";
+import logger from "./services/logger.js";
+import { requireRole } from "./middleware/rbac.js";
+import { initSentry, sentryErrorHandler } from "./services/sentry.js";
+
+// Routes
+import admin from "./routes/admin.js";
+import login from "./routes/login.js";
+import user from "./routes/user.js";
+import universal from "./routes/universal.js";
+import question from "./routes/questions.js";
+import testpaper from "./routes/testpaper.js";
+import up from "./routes/fileUpload.js";
+import stopRegistration from "./routes/stopRegistration.js";
+import trainee from "./routes/trainee.js";
+import results from "./routes/results.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const PORT = process.env.PORT || 5000;
-const createError = require('http-errors');
-const express = require('express');
-const helmet = require('helmet');
-const path = require('path');
-const logger = require('morgan');
-const bodyParser = require('body-parser');
-const expressValidator = require('express-validator');
-const passport = require("./services/passportconf");
-const tool = require("./services/tool");
-const cookieParser = require('cookie-parser');
-const { doubleCsrf } = require("csrf-csrf");
-
 const app = express();
+const httpServer = createServer(app);
 
-app.use(cookieParser());
-app.use(helmet());
+// Plan 4.1: Initialize Sentry error monitoring (no-op if SENTRY_DSN not set)
+await initSentry(app);
 
-app.use((req, res, next) => {
-    const allowedOrigins = [process.env.FRONTEND_URL || 'http://localhost:3000'];
-    const origin = req.headers.origin;
-    if (allowedOrigins.includes(origin)) {
-        res.header("Access-Control-Allow-Origin", origin);
-    }
-    res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
-    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, access-control-allow-origin, Authorization, x-csrf-token");
-    res.header("Access-Control-Allow-Credentials", "true");
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
-    }
-    next();
+// Initialize Socket.io
+initSocket(httpServer);
+
+// MongoDB Connection Tuning
+const MONGO_URI = process.env.DATABASE_URL || process.env.MONGO_URI;
+mongoose.connect(MONGO_URI, {
+  maxPoolSize: 100, // Tuned for high concurrency
+  socketTimeoutMS: 45000,
+  connectTimeoutMS: 30000,
+  family: 4, // Force IPv4 to avoid potential handshake issues
+}).then(() => {
+  logger.info("🍃 MongoDB Connected with tuned connection pool");
+}).catch(err => {
+  logger.error(`❌ MongoDB Connection Error: ${err.message}`);
 });
 
+// Middleware
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(cookieParser());
+app.use(helmet({
+  crossOriginResourcePolicy: false,
+}));
+
+// Modern CORS
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token'],
+  credentials: true,
+}));
+
+// CSRF Protection
 const {
-    invalidCsrfTokenErrorMiddleware,
-    generateToken,
-    doubleCsrfProtection,
+  generateCsrfToken,
+  doubleCsrfProtection,
 } = doubleCsrf({
-    getSecret: () => process.env.CSRF_SECRET || "a-very-secret-string",
-    cookieName: "x-csrf-token",
-    cookieOptions: {
-        httpOnly: false, // Must be accessible by client to send back in header
-        sameSite: "Lax",
-        secure: process.env.NODE_ENV === "production",
-    },
-    size: 64,
-    ignoredMethods: ["GET", "HEAD", "OPTIONS"],
-    getTokenFromRequest: (req) => req.headers["x-csrf-token"],
+  getSecret: () => process.env.CSRF_SECRET || "supersecret", 
+  cookieName: "x-csrf-token",
+  cookieOptions: {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === 'production',
+    path: "/",
+  },
+  getTokenFromRequest: (req) => req.headers["x-csrf-token"],
+  getSessionIdentifier: (req) => "fixed-session-id", 
 });
 
 app.get("/api/v1/csrf-token", (req, res) => {
-    res.json({ token: generateToken(req, res) });
+  res.json({ token: generateCsrfToken(req, res) });
 });
-
-app.use(invalidCsrfTokenErrorMiddleware);
-
-// Routes
-const mongoose = require("./services/connection");
-const admin = require("./routes/admin");
-const login = require("./routes/login");
-const user = require("./routes/user");
-const universal = require("./routes/universal");
-const question = require("./routes/questions");
-const testpaper = require("./routes/testpaper");
-const up = require("./routes/fileUpload");
-const trainee = require("./routes/trainee");
-const stopRegistration = require("./routes/stopRegistration");
-const results = require("./routes/results");
-const dummy = require("./routes/dummy");
-
-// Configs
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(logger('dev'));
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(expressValidator());
 
 // Passport
 app.use(passport.initialize());
 
-// Bind Routes
-app.use("/api/v1/admin", doubleCsrfProtection, passport.authenticate('user-token', { session: false }), admin);
-app.use("/api/v1/user", doubleCsrfProtection, passport.authenticate('user-token', { session: false }), user);
-app.use('/api/v1/subject', doubleCsrfProtection, passport.authenticate('user-token', { session: false }), universal);
-app.use('/api/v1/questions', doubleCsrfProtection, passport.authenticate('user-token', { session: false }), question);
-app.use('/api/v1/test', doubleCsrfProtection, passport.authenticate('user-token', { session: false }), testpaper);
-app.use('/api/v1/upload', doubleCsrfProtection, passport.authenticate('user-token', { session: false }), up);
-app.use('/api/v1/trainer', doubleCsrfProtection, passport.authenticate('user-token', { session: false }), stopRegistration);
-app.use('/api/v1/trainee', doubleCsrfProtection, trainee);
-app.use('/api/v1/final', doubleCsrfProtection, results);
-app.use('/api/v1/lala', doubleCsrfProtection, dummy);
+// Server-side Clock Sync Middleware
+app.use((req, res, next) => {
+  res.setHeader('X-Server-Time', new Date().toISOString());
+  next();
+});
+
+// Plan 3.5: RBAC applied — ADMIN-only for user/admin management, TRAINER|ADMIN for test ops
+app.use("/api/v1/admin", doubleCsrfProtection, passport.authenticate('user-token', { session: false }), requireRole('ADMIN'), admin);
+app.use("/api/v1/user", doubleCsrfProtection, passport.authenticate('user-token', { session: false }), requireRole('ADMIN'), user);
+app.use('/api/v1/subject', passport.authenticate('user-token', { session: false }), universal);
+app.use('/api/v1/questions', passport.authenticate('user-token', { session: false }), question);
+app.use('/api/v1/test', passport.authenticate('user-token', { session: false }), requireRole('ADMIN', 'TRAINER'), testpaper);
+app.use('/api/v1/upload', passport.authenticate('user-token', { session: false }), up);
+app.use('/api/v1/trainer', passport.authenticate('user-token', { session: false }), stopRegistration);
+app.use('/api/v1/trainee', trainee);
+app.use('/api/v1/final', doubleCsrfProtection, passport.authenticate('user-token', { session: false }), requireRole('ADMIN', 'TRAINER'), results);
 app.use('/api/v1/login', doubleCsrfProtection, login);
 
-// Health check route for AWS Elastic Beanstalk
+// Health check & Time Sync
+app.get('/api/v1/time', (req, res) => {
+  res.status(200).json({ serverTime: new Date().toISOString() });
+});
+
 app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'UP', timestamp: new Date() });
+  res.status(200).json({ status: 'UP', timestamp: new Date() });
 });
 
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname + '/public/index.html'));
+  res.sendFile(path.join(__dirname + '/public/index.html'));
 });
 
-// Error handling
+// Plan 4.1: Sentry error capture — must be BEFORE global error handler
+app.use(sentryErrorHandler);
+
+// Global Error Handler
 app.use((req, res, next) => {
-    next(createError(404, "Invalid API. Use the official documentation to get the list of valid APIS."));
+  const error = new Error("Invalid API Endpoint");
+  error.status = 404;
+  next(error);
 });
 
 app.use((err, req, res, next) => {
-    console.error(err);
-    res.status(err.status || 500).json({
-        success: false,
-        message: err.message || "Internal Server Error"
-    });
+  const status = err.status || 500;
+  logger.error(`[${status}] ${req.method} ${req.url} - ${err.message}\n${err.stack}`);
+  
+  res.status(status).json({
+    success: false,
+    message: status === 500 ? "Internal Server Error" : err.message,
+    // Avoid leaking stack trace in production
+    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+  });
 });
 
-app.listen(PORT, (err) => {
-    if (err) {
-        console.error(err);
-    }
-    console.log(`Server Started. Server listening to port ${PORT}`);
-});
+httpServer.listen(PORT, () => {
+  logger.info(`🚀 Server Modernized (ESM) & Started on port ${PORT}`);
+});

@@ -1,6 +1,7 @@
-var express = require("express");
-var router = express.Router();
+import express from "express";
+const router = express.Router();
+import { generateResults } from "../services/generateResults.js";
 
-var results = require("../services/generateResults");
-router.post('/results',results.generateResults);
-module.exports = router;
+router.post('/results', generateResults);
+
+export default router;
