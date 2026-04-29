@@ -11,7 +11,7 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import { doubleCsrf } from "csrf-csrf";
 import { createServer } from "http";
-import mongoose from 'mongoose';
+
 
 import passport from "./services/passportconf.js";
 import { init as initSocket } from "./services/socket.js";
@@ -44,18 +44,8 @@ await initSentry(app);
 // Initialize Socket.io
 initSocket(httpServer);
 
-// MongoDB Connection Tuning
-const MONGO_URI = process.env.DATABASE_URL || process.env.MONGO_URI;
-mongoose.connect(MONGO_URI, {
-  maxPoolSize: 100, // Tuned for high concurrency
-  socketTimeoutMS: 45000,
-  connectTimeoutMS: 30000,
-  family: 4, // Force IPv4 to avoid potential handshake issues
-}).then(() => {
-  logger.info("🍃 MongoDB Connected with tuned connection pool");
-}).catch(err => {
-  logger.error(`❌ MongoDB Connection Error: ${err.message}`);
-});
+// Prisma manages its own MongoDB connection pool via DATABASE_URL
+logger.info("🍃 Prisma client initialized — MongoDB connection managed by Prisma");
 
 // Middleware
 app.use(express.static(path.join(__dirname, 'public')));
