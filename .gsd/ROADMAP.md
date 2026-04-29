@@ -21,17 +21,17 @@ updated: 2026-04-30
 ## Phases
 
 ### Phase 1: ORM Consolidation
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete
 **Objective:** Remove Mongoose entirely. Prisma becomes the single source of truth for all DB operations. Eliminate the dual connection pool and stale `schemas/` directory.
 **Depends on:** Nothing
 
 **Plans:**
-- [ ] Plan 1.1: Remove `mongoose.connect()` from `app.js`, uninstall mongoose package, delete unused `schemas/` files.
+- [x] Plan 1.1: Remove `mongoose.connect()` from `app.js`, uninstall mongoose package, delete unused `schemas/` files.
 
 ---
 
 ### Phase 2: Result Privacy Server-Gate
-**Status:** ⬜ Not Started
+**Status:** 🔄 In Progress
 **Objective:** Ensure student-facing result endpoints check `test.isResultgenerated` on the server before returning any score. A UI-only toggle is bypassable with DevTools.
 **Depends on:** Phase 1 ✅
 
