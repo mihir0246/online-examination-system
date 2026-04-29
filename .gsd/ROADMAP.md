@@ -6,7 +6,7 @@ updated: 2026-04-30
 
 # Roadmap
 
-> **Current Phase:** Phase 1 — ORM Consolidation
+> **Current Phase:** Phase 2 — Result Privacy Server-Gate
 > **Status:** 🔄 In Progress
 
 ## Must-Haves (from Review Findings)
@@ -31,18 +31,18 @@ updated: 2026-04-30
 ---
 
 ### Phase 2: Result Privacy Server-Gate
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete
 **Objective:** Ensure student-facing result endpoints check `test.isResultgenerated` on the server before returning any score. A UI-only toggle is bypassable with DevTools.
 **Depends on:** Phase 1 ✅
 
 **Plans:**
-- [ ] Plan 2.1: Audit all trainee-accessible result/score endpoints and add server-side `isResultgenerated` guard.
-- [ ] Plan 2.2: Add a `isResultPublished` boolean field to the Test model (distinct from `isResultgenerated`) so faculty can explicitly release results independently.
+- [x] Plan 2.1: Audit all trainee-accessible result/score endpoints and add server-side `isResultgenerated` guard.
+- [x] Plan 2.2: Add a `isResultPublished` boolean field to the Test model (distinct from `isResultgenerated`) so faculty can explicitly release results independently.
 
 ---
 
 ### Phase 3: Load Test Execution
-**Status:** ⬜ Not Started
+**Status:** 🔄 In Progress
 **Objective:** Actually run the k6 load test against the real backend. Document the result. Fix whatever breaks (connection pool exhaustion, CPU spike, slow endpoints).
 **Depends on:** Phase 2 ✅
 
