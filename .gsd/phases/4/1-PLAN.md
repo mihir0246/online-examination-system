@@ -19,7 +19,7 @@ This blocks faculty from using bulk import — a critical workflow.
   `parseTextToQuestions()`, `parseQFormat()`, `parseTableConcatenated()`, `cleanQuestion()`,
   `isWorthKeeping()`
 - `backend/routes/fileUpload.js` — calls the parser after multer upload
-- `backend/schemas/questions.js` (Zod schema in routes/questions.js) — must accept both MCQ and TEXT type
+- `backend/routes/questions.js` — contains Zod schema that must accept both MCQ and TEXT type
 - The Zod schema currently may reject descriptive questions (no options array)
 
 ## Tasks
