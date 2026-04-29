@@ -311,6 +311,16 @@ export const feedback = async (req, res) => {
 export const fetchOwnResult = async (req, res) => {
   try {
     const { userid, testid } = req.body;
+
+    // --- Plan 2.1: Result Privacy Guard ---
+    const test = await prisma.test.findUnique({ where: { id: testid } });
+    if (!test || !test.isResultgenerated) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Results have not been published yet." 
+      });
+    }
+
     const result = await gresult(userid, testid);
     const trainee = await prisma.trainee.findUnique({
       where: { id: userid }
@@ -400,6 +410,16 @@ export const heartbeat = async (req, res) => {
 
 export const correctAnswers = async (req, res) => {
   const { testid } = req.body;
+
+  // --- Plan 2.1: Result Privacy Guard ---
+  const testRecord = await prisma.test.findUnique({ where: { id: testid } });
+  if (!testRecord || !testRecord.isResultgenerated) {
+    return res.status(403).json({ 
+      success: false, 
+      message: "Results have not been published yet." 
+    });
+  }
+
   const test = await prisma.test.findUnique({
     where: { id: testid },
     include: { questions: { include: { options: { where: { isAnswer: true } } } } }
@@ -419,6 +439,16 @@ export const TraineeDetails = async (req, res) => {
 
 export const chosenOptions = async (req, res) => {
   const { userid, testid } = req.body;
+
+  // --- Plan 2.1: Result Privacy Guard ---
+  const testRecord = await prisma.test.findUnique({ where: { id: testid } });
+  if (!testRecord || !testRecord.isResultgenerated) {
+    return res.status(403).json({ 
+      success: false, 
+      message: "Results have not been published yet." 
+    });
+  }
+
   const sheet = await prisma.answerSheet.findFirst({
     where: { traineeId: userid, testId: testid },
     include: { answers: true }
