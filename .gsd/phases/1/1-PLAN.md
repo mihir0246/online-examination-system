@@ -52,7 +52,7 @@ Mongoose goes.
     
     Do NOT remove any other imports or middleware.
   </action>
-  <verify>node --input-type=module &lt;&lt;&lt; "import './app.js'" 2>&1 | Select-String "mongoose"</verify>
+  <verify>Select-String -Path backend/app.js -Pattern "mongoose" -CaseSensitive</verify>
   <done>No "mongoose" string appears in app.js output. Server starts without error.</done>
 </task>
 
@@ -74,7 +74,7 @@ Mongoose goes.
     
     Do NOT delete `backend/prisma/schema.prisma` — that is the keeper.
   </action>
-  <verify>grep -r "from.*schemas" backend/services/ backend/routes/ 2>&1; echo "Exit: $LASTEXITCODE"</verify>
+  <verify>Select-String -Path "backend/services/*.js", "backend/routes/*.js" -Pattern "schemas" -ErrorAction SilentlyContinue</verify>
   <done>Zero matches for schemas imports. `backend/schemas/` directory does not exist. `mongoose` absent from package.json.</done>
 </task>
 

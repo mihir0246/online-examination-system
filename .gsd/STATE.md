@@ -18,5 +18,5 @@ None
 
 ## Decisions Log
 - **2026-04-30**: Chose Prisma over Mongoose as single ORM. Reason: full schema.prisma already
-  exists, all services already use `prisma.*`, Mongoose models were already deleted. Mongoose
+  exists, all services already use `prisma.*`, Mongoose models are no longer imported/used. Mongoose
   only remained as a connection pool manager in app.js — replaced by Prisma's built-in pooling.
