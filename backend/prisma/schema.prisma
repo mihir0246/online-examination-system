@@ -92,6 +92,7 @@ model Test {
   isRegistrationavailable Boolean  @default(true)
   testconducted          Boolean  @default(false)
   isResultgenerated      Boolean  @default(false)
+  isResultPublished      Boolean  @default(false)
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
