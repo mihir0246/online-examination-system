@@ -14,8 +14,8 @@ const apiClient = axios.create({
   },
 });
 
-// Routes that require CSRF (login no longer needs it — protected by rate limiting)
-const CSRF_ROUTES = ['/api/v1/admin', '/api/v1/final'];
+// Routes that require CSRF (including login to mitigate Login CSRF)
+const CSRF_ROUTES = ['/api/v1/admin', '/api/v1/final', '/api/v1/login'];
 
 apiClient.interceptors.request.use(async (config) => {
   // Attach JWT from localStorage as Bearer token
