@@ -4,18 +4,16 @@ applications:
       phases:
         preBuild:
           commands:
-            - npm install --legacy-peer-deps
+            - npm ci
         build:
           commands:
-            # This line is CRITICAL for your project's react-scripts version
-            - export NODE_OPTIONS=--openssl-legacy-provider
-            - export GENERATE_SOURCEMAP=false
             - npm run build
       artifacts:
-        baseDirectory: build
+        baseDirectory: .next
         files:
           - '**/*'
       cache:
         paths:
+          - .next/cache/**/*
           - node_modules/**/*
-    appRoot: frontend
+    appRoot: frontend-modern
