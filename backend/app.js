@@ -33,6 +33,7 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import { doubleCsrf } from "csrf-csrf";
 import { createServer } from "http";
+import crypto from 'crypto';
 
 
 import passport from "./services/passportconf.js";
@@ -123,6 +124,21 @@ const loginLimiter = rateLimit({
   message: 'Too many login attempts, please try again later.'
 });
 
+// Anonymous session tracking for proper CSRF isolation
+app.use((req, res, next) => {
+  if (!req.cookies['anon-session']) {
+    const id = crypto.randomBytes(24).toString('hex');
+    res.cookie('anon-session', id, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+    });
+    req.cookies['anon-session'] = id; // make it available immediately
+  }
+  next();
+});
+
 // CSRF Protection
 const {
   generateCsrfToken,
@@ -139,7 +155,7 @@ const {
   getTokenFromRequest: (req) => req.headers["x-csrf-token"],
   getSessionIdentifier: (req) => {
     if (req.user?.id) return req.user.id;
-    return req.ip || "anonymous";
+    return req.cookies['anon-session'] || req.ip || "fallback";
   },
 });
 
