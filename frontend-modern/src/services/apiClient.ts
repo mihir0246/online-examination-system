@@ -37,5 +37,37 @@ apiClient.interceptors.request.use(async (config) => {
 
   return config;
 });
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    
+    // If it's a 401 during an exam, we don't want to violently redirect.
+    // Instead we emit a custom event that the exam portal can listen to, or we retry.
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+      try {
+        // Attempt silent refresh
+        const { data } = await axios.get(`${BASE_URL}/api/v1/refresh`, { withCredentials: true });
+        if (data.token) {
+          localStorage.setItem('authToken', data.token);
+          originalRequest.headers['Authorization'] = `Bearer ${data.token}`;
+          return apiClient(originalRequest);
+        }
+      } catch (refreshError) {
+        // Refresh failed. If we are in the exam portal, let it handle the "Reconnecting..." state
+        if (window.location.pathname.includes('/exam/portal')) {
+          // Dispatch event so UI can show "Reconnecting / Connection Lost" gracefully
+          window.dispatchEvent(new CustomEvent('exam_token_expired'));
+        } else {
+          // Standard logout
+          localStorage.removeItem('authToken');
+          window.location.href = '/login';
+        }
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 export default apiClient;

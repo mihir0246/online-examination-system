@@ -21,12 +21,14 @@ const errorRate      = new Rate('exam_errors');
 const answerSaveDuration = new Trend('answer_save_duration');
 const submitDuration = new Trend('submit_duration');
 
-// ── Load profile (matches SPEC: 500 concurrent, p95 < 500ms) ───────────────
+// ── Load profile (matches SPEC: 500 & 2000 concurrent, p95 < 500ms) ───────────────
+const targetVUs = parseInt(__ENV.VUS || '500', 10);
+
 export const options = {
   stages: [
-    { duration: '30s', target: 100  },  // Warm up
-    { duration: '60s', target: 500  },  // Ramp to 500 VUs
-    { duration: '120s', target: 500 },  // Sustain peak load
+    { duration: '30s', target: Math.floor(targetVUs * 0.2) },  // Warm up
+    { duration: '60s', target: targetVUs  },  // Ramp to Target VUs
+    { duration: '120s', target: targetVUs },  // Sustain peak load
     { duration: '30s', target: 0    },  // Ramp down
   ],
   thresholds: {
@@ -53,7 +55,7 @@ export default function () {
     JSON.stringify({
       name: `Test User ${vuId}`,
       emailid: `${vuId}@loadtest.example.com`,
-      contact: `98${String(__VU).padStart(8, '0')}`,
+      contact: `9${String(__VU).padStart(4, '0')}${String(__ITER).padStart(5, '0')}`,
       organisation: 'Load Test Corp',
       location: 'Test City',
       testid: TEST_ID,

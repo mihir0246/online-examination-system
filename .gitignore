@@ -61,3 +61,11 @@ frontend-modern/.turbo/
 # Prisma
 # ──────────────────────────────────────────
 # keep schema.prisma, ignore generated client if checked in separately
+# Deployment archives
+*.zip
+backend-deploy.zip
+
+# Local Mongo DBs
+mongodb_data/
+temp_mongo/
+

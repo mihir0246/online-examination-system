@@ -40,11 +40,20 @@ export default function InstructionPage() {
       message.warning('Please agree to the instructions before proceeding.');
       return;
     }
-    const result = await proceedToTest();
-    if (result.success) {
-      router.push(`/exam/portal/${testId}/${traineeId}`);
-    } else {
-      message.error(result.message || 'Error starting exam');
+    try {
+      const result = await proceedToTest();
+      if (result.success) {
+        router.push(`/exam/portal/${testId}/${traineeId}`);
+      } else {
+        message.error(result.message || 'Error starting exam');
+      }
+    } catch (err: any) {
+      if (err.response?.status === 409) {
+        message.warning('Exam already submitted. Redirecting to portal...');
+        router.push(`/exam/portal/${testId}/${traineeId}`);
+      } else {
+        message.error(err.response?.data?.message || 'Error starting exam');
+      }
     }
   };
 

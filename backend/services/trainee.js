@@ -5,7 +5,9 @@ import { getIO } from "./socket.js";
 import { sendmail } from "./mail.js";
 import { gresult } from "./generateResults.js";
 import redis, { recordHeartbeat, getActiveTrainees } from "./redis.js";
+import { saveExamState, loadExamState, deleteExamState } from "./cache.js";
 import { auditLog, auditFromReq, AuditEvent } from "./auditLog.js";
+import jwt from "jsonwebtoken";
 
 const traineeSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -63,7 +65,8 @@ export const traineeenter = async (req, res, next) => {
         contact,
         organisation,
         location,
-        testId: testid
+        testId: testid,
+        consentGivenAt: new Date()
       }
     });
 
@@ -80,10 +83,24 @@ export const traineeenter = async (req, res, next) => {
     sendmail(emailid, "Registration Successful", `Take your test here: ${testLink}`)
       .catch(err => logger.error(`Mail error: ${err.message}`));
 
+    const token = jwt.sign(
+      { id: trainee.id, emailid: trainee.emailid, type: 'TRAINEE' },
+      process.env.JWT_SECRET || "default-secret-change-me",
+      { expiresIn: '24h' }
+    );
+
+    res.cookie('Token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Lax',
+      maxAge: 24 * 60 * 60 * 1000
+    });
+
     return res.json({
       success: true,
       message: "Candidate registered successfully!",
-      user: trainee
+      user: trainee,
+      token
     });
 
   } catch (err) {
@@ -95,6 +112,10 @@ export const traineeenter = async (req, res, next) => {
 export const Answersheet = async (req, res, next) => {
   try {
     const { userid, testid } = req.body;
+    if (userid !== req.user?.id) {
+      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.headers['x-forwarded-for'] || req.ip });
+      return res.status(403).json({ success: false, message: "Forbidden: Cannot access another user's answersheet" });
+    }
     logger.info(`Starting Answersheet for user: ${userid}, test: ${testid}`);
     
     const [trainee, testPaper] = await Promise.all([
@@ -115,28 +136,25 @@ export const Answersheet = async (req, res, next) => {
       include: { answers: true }
     });
 
-    // --- Plan 2.3: Restore saved exam state from Redis ---
-    let savedState = null;
-    try {
-      const stateRaw = await redis.get(`exam_state:${userid}:${testid}`);
-      if (stateRaw) savedState = JSON.parse(stateRaw);
-    } catch (e) {
-      logger.warn(`Could not restore exam state: ${e.message}`);
-    }
+    // Bug#6 Fix: Use cache.js wrapper (fail-open) instead of direct redis.get
+    const savedState = await loadExamState(userid, testid);
 
     if (existingSheet) {
-      // Reset completed status to allow re-entry
-      await prisma.answerSheet.update({
-        where: { id: existingSheet.id },
-        data: { completed: false }
-      });
+      // Bug#4 Fix: Never re-open a completed sheet — that allows post-submission edits
+      if (existingSheet.completed) {
+        return res.status(409).json({
+          success: false,
+          message: 'Exam already submitted. No further changes are allowed.'
+        });
+      }
 
-      return res.json({ 
-        success: true, 
-        message: "Sheet exists", 
+      // Sheet exists but not submitted — legitimate re-entry (browser crash, etc.)
+      return res.json({
+        success: true,
+        message: 'Sheet exists',
         data: existingSheet,
         duration: testPaper.duration,
-        savedState // null if no saved state, or { currentQuestionIdx, remainingTime }
+        savedState
       });
     }
 
@@ -172,6 +190,10 @@ export const Answersheet = async (req, res, next) => {
 export const UpdateAnswers = async (req, res, next) => {
   try {
     const { testid, userid, qid, newAnswer, isBookmarked } = req.body;
+    if (userid !== req.user?.id) {
+      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.headers['x-forwarded-for'] || req.ip });
+      return res.status(403).json({ success: false, message: "Forbidden: Cannot modify another user's answersheet" });
+    }
     logger.info(`Update answer request: ${JSON.stringify(req.body)}`);
 
     // Idempotency: deduplicate same answer within a 3-second window
@@ -191,7 +213,8 @@ export const UpdateAnswers = async (req, res, next) => {
     }
 
     const sheet = await prisma.answerSheet.findFirst({
-      where: { traineeId: userid, testId: testid }
+      where: { traineeId: userid, testId: testid },
+      include: { test: true }
     });
 
     if (!sheet) {
@@ -202,6 +225,14 @@ export const UpdateAnswers = async (req, res, next) => {
     if (sheet.completed) {
       logger.warn(`Update answer blocked: Sheet already completed. Sheet: ${sheet.id}`);
       return res.status(403).json({ success: false, message: "Exam session closed" });
+    }
+
+    const endTimeSeconds = sheet.startTime + (sheet.test.duration * 60);
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (nowSeconds > endTimeSeconds + 60) { // 60s grace period for network lag
+      logger.warn(`Update answer blocked: Exam window closed. Sheet: ${sheet.id}`);
+      await auditLog({ event: AuditEvent.EXAM_WINDOW_VIOLATION, traineeId: userid, testId: testid, metadata: { submissionTime: nowSeconds, deadline: endTimeSeconds, delta: nowSeconds - endTimeSeconds }, ip: req.headers['x-forwarded-for'] || req.ip });
+      return res.status(403).json({ success: false, message: "Exam window closed" });
     }
 
     await prisma.answer.updateMany({
@@ -224,17 +255,21 @@ export const UpdateAnswers = async (req, res, next) => {
 export const syncState = async (req, res) => {
   try {
     const { userid, testid, currentQuestionIdx, remainingTime } = req.body;
-    
+    if (userid !== req.user?.id) {
+      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.headers['x-forwarded-for'] || req.ip });
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
     if (!userid || !testid) {
       return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
-    const stateKey = `exam_state:${userid}:${testid}`;
-    const state = { currentQuestionIdx, remainingTime, savedAt: Date.now() };
-    
-    // TTL: 4 hours (longer than any reasonable exam duration)
-    await redis.set(stateKey, JSON.stringify(state), 'EX', 4 * 60 * 60);
-    
+    // Bug#6 Fix: Use cache.js wrapper — silently no-ops if Redis is down
+    await saveExamState(userid, testid, {
+      currentQuestionIdx,
+      remainingTime,
+      savedAt: Date.now()
+    });
+
     return res.json({ success: true, message: "State saved" });
   } catch (err) {
     logger.error(`syncState error: ${err.message}`);
@@ -246,19 +281,33 @@ export const syncState = async (req, res) => {
 export const EndTest = async (req, res) => {
   try {
     const { testid, userid } = req.body;
+    if (userid !== req.user?.id) {
+      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.headers['x-forwarded-for'] || req.ip });
+      return res.status(403).json({ success: false, message: "Forbidden: Cannot modify another user's answersheet" });
+    }
+
+    // Bug#5 Fix: Fast-path idempotency check OUTSIDE transaction
+    const alreadySubmitted = await prisma.answerSheet.findFirst({
+      where: { traineeId: userid, testId: testid, completed: true }
+    });
+    if (alreadySubmitted) {
+      return res.json({ success: true, message: 'Already submitted' });
+    }
 
     await prisma.$transaction(async (tx) => {
       const sheet = await tx.answerSheet.findFirst({
-        where: { traineeId: userid, testId: testid }
+        where: { traineeId: userid, testId: testid },
+        include: { test: true }
       });
 
-      if (!sheet) {
-        throw new Error("Answer sheet not found");
-      }
+      if (!sheet) throw new Error("Answer sheet not found");
+      if (sheet.completed) return; // idempotent inside tx — handled above
 
-      if (sheet.completed) {
-        // Already submitted — idempotent response
-        return;
+      const endTimeSeconds = sheet.startTime + (sheet.test.duration * 60);
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      if (nowSeconds > endTimeSeconds + 120) {
+        await auditLog({ event: AuditEvent.EXAM_WINDOW_VIOLATION, traineeId: userid, testId: testid, metadata: { submissionTime: nowSeconds, deadline: endTimeSeconds, delta: nowSeconds - endTimeSeconds }, ip: req.headers['x-forwarded-for'] || req.ip });
+        throw new Error("Exam window closed");
       }
 
       await tx.answerSheet.update({
@@ -267,18 +316,13 @@ export const EndTest = async (req, res) => {
       });
     });
 
-    // Generate results outside transaction (can be retried independently)
+    // Generate results outside transaction (idempotent via upsert)
     await gresult(userid, testid);
 
-    // Plan 3.1: Audit log exam submission
     auditLog({ event: AuditEvent.EXAM_SUBMITTED, traineeId: userid, testId: testid, ip: req.ip });
 
-    // Clean up persisted exam state from Redis
-    try {
-      await redis.del(`exam_state:${userid}:${testid}`);
-    } catch (e) {
-      logger.warn(`Could not clear exam state: ${e.message}`);
-    }
+    // Bug#6 Fix: Use cache.js wrapper for cleanup
+    await deleteExamState(userid, testid);
 
     return res.json({ success: true, message: "Submitted" });
   } catch (err) {
@@ -289,20 +333,33 @@ export const EndTest = async (req, res) => {
 
 export const feedback = async (req, res) => {
   try {
-    const { userid, testid, feedback, rating } = req.body;
-    
-    // Save feedback using Prisma
+    const { userid, testid, feedback: comment, rating } = req.body;
+
+    if (!userid || !testid || !comment || rating == null) {
+      return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    // Bug#7 Fix: Check for existing feedback before insert to avoid P2002 crash
+    const existing = await prisma.feedback.findFirst({
+      where: { traineeId: userid, testId: testid }
+    });
+    if (existing) {
+      return res.status(409).json({ success: false, message: 'Feedback already submitted' });
+    }
+
     await prisma.feedback.create({
       data: {
-        comment: feedback,
+        comment,
         rating: parseFloat(rating),
         traineeId: userid,
         testId: testid
       }
     });
-
     return res.json({ success: true, message: "Feedback saved" });
   } catch (err) {
+    if (err.code === 'P2002') {
+      return res.status(409).json({ success: false, message: 'Feedback already submitted' });
+    }
     logger.error(`Save feedback error: ${err.message}`);
     return res.status(500).json({ success: false, message: "Unable to save feedback" });
   }
@@ -311,10 +368,15 @@ export const feedback = async (req, res) => {
 export const fetchOwnResult = async (req, res) => {
   try {
     const { userid, testid } = req.body;
+    if (userid !== req.user?.id) {
+      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.headers['x-forwarded-for'] || req.ip });
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
 
     // --- Plan 2.1: Result Privacy Guard ---
     const test = await prisma.test.findUnique({ where: { id: testid } });
-    if (!test || !test.isResultgenerated) {
+    if (!test || !test.isResultPublished) {
+      await auditLog({ event: AuditEvent.RESULT_ACCESS_DENIED, traineeId: userid, testId: testid, ip: req.headers['x-forwarded-for'] || req.ip });
       return res.status(403).json({ 
         success: false, 
         message: "Results have not been published yet." 
@@ -335,8 +397,9 @@ export const fetchOwnResult = async (req, res) => {
 export const checkFeedback = async (req, res) => {
   try {
     const { userid, testid } = req.body;
-    const existing = await prisma.feedback.findUnique({
-      where: { traineeId: userid }
+    // findFirst because the compound (traineeId, testId) is not a unique index on Feedback
+    const existing = await prisma.feedback.findFirst({
+      where: { traineeId: userid, testId: testid }
     });
     return res.json({ success: true, status: !!existing });
   } catch (err) {
@@ -373,12 +436,20 @@ export const Testquestions = async (req, res) => {
   // --- Plan 3.2: Deterministic per-trainee shuffle (seeded by traineeId) ---
   // Extract traineeId from body for seed; fall back to unsorted if missing
   const traineeId = req.body.traineeId || req.body.userid;
+  // Bug#13 Fix: FNV-1a hash seed — much better distribution than charCode sum.
+  // charCode sum has ~30% collision rate on 24-char MongoDB ObjectIDs.
   if (traineeId) {
-    // Simple seeded shuffle — consistent across refreshes for same trainee
-    let seed = traineeId.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+    let hash = 2166136261;
+    for (let i = 0; i < traineeId.length; i++) {
+      hash ^= traineeId.charCodeAt(i);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    let seed = hash;
     const seededRandom = () => {
-      seed = (seed * 1664525 + 1013904223) & 0xffffffff;
-      return (seed >>> 0) / 0xffffffff;
+      seed ^= seed << 13;
+      seed ^= seed >> 17;
+      seed ^= seed << 5;
+      return (seed >>> 0) / 0xFFFFFFFF;
     };
     for (let i = safeQuestions.length - 1; i > 0; i--) {
       const j = Math.floor(seededRandom() * (i + 1));
@@ -389,14 +460,48 @@ export const Testquestions = async (req, res) => {
   return res.json({ success: true, data: safeQuestions });
 };
 
+// Bug#8 Fix: Implement actual email dispatch (was a silent stub)
 export const resendmail = async (req, res) => {
-  return res.json({ success: true, message: "Link resent" });
+  try {
+    const { traineeId } = req.body;
+    if (!traineeId) {
+      return res.status(400).json({ success: false, message: 'traineeId required' });
+    }
+
+    const trainee = await prisma.trainee.findUnique({ where: { id: traineeId } });
+    if (!trainee) {
+      return res.status(404).json({ success: false, message: 'Trainee not found' });
+    }
+
+    const testLink = `${process.env.FRONTEND_URL}/exam/instructions/${trainee.testId}/${trainee.id}`;
+    await sendmail(
+      trainee.emailid,
+      'Your Exam Link',
+      `Access your test here: ${testLink}`,
+      `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px">
+        <h2>Exam Access Link</h2>
+        <p>Dear <strong>${trainee.name}</strong>,</p>
+        <p>Here is your personal exam link:</p>
+        <p><a href="${testLink}" style="background:#4f46e5;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none">Access Exam</a></p>
+        <p style="color:#6b7280;font-size:12px;margin-top:20px">This link is unique to you. Do not share it.</p>
+      </div>`
+    );
+
+    return res.json({ success: true, message: 'Test link resent successfully' });
+  } catch (err) {
+    logger.error(`Resend mail error: ${err.message}`);
+    return res.status(500).json({ success: false, message: 'Failed to resend email' });
+  }
 };
 
 // --- Plan 3.3: Heartbeat endpoint ---
 export const heartbeat = async (req, res) => {
   try {
     const { userid, testid } = req.body;
+    if (userid !== req.user?.id) {
+      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.headers['x-forwarded-for'] || req.ip });
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
     if (!userid || !testid) {
       return res.status(400).json({ success: false, message: 'Missing userid or testid' });
     }
@@ -480,11 +585,137 @@ export const getTestInfo = async (req, res) => {
 };
 
 export const logEvent = async (req, res) => {
-  logger.info(`Exam Event: ${JSON.stringify(req.body)}`);
-  return res.json({ success: true });
+  try {
+    const { userid, testid, eventType, metadata } = req.body;
+
+    if (!userid || !testid || !eventType) {
+      return res.status(400).json({ success: false, message: "Missing fields" });
+    }
+
+    if (userid !== req.user?.id) {
+      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.headers['x-forwarded-for'] || req.ip });
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+
+    // Volume cap: Max 100 events per trainee per test
+    const count = await prisma.examEvent.count({
+      where: { traineeId: userid, testId: testid }
+    });
+
+    if (count >= 100) {
+      // Quietly return 200, don't store more.
+      return res.status(200).json({ success: true, message: "Event cap reached" });
+    }
+
+    await prisma.examEvent.create({
+      data: {
+        eventType,
+        metadata: metadata || {},
+        traineeId: userid,
+        testId: testid,
+        expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) // TTL 90 days
+      }
+    });
+
+    return res.json({ success: true });
+  } catch (err) {
+    logger.error(`logEvent error: ${err.message}`);
+    return res.status(500).json({ success: false });
+  }
 };
 
+// Bug#10 Fix: saveSnapshot was a silent stub — now actually persists exam state
 export const saveSnapshot = async (req, res) => {
-  logger.info(`Snapshot received for trainee: ${req.body.traineeid}`);
-  return res.json({ success: true });
+  try {
+    const { userid, testid, currentQuestionIdx, remainingTime } = req.body;
+
+    if (!userid || !testid) {
+      return res.status(400).json({ success: false, message: 'Missing userid or testid' });
+    }
+    if (typeof currentQuestionIdx !== 'number' || currentQuestionIdx < 0) {
+      return res.status(400).json({ success: false, message: 'Invalid question index' });
+    }
+    if (typeof remainingTime !== 'number' || remainingTime < 0 || remainingTime > 86400) {
+      return res.status(400).json({ success: false, message: 'Invalid remaining time' });
+    }
+
+    await saveExamState(userid, testid, {
+      currentQuestionIdx,
+      remainingTime,
+      savedAt: Date.now()
+    });
+
+    return res.json({ success: true, message: 'Snapshot saved' });
+  } catch (err) {
+    logger.error(`saveSnapshot error: ${err.message}`);
+    return res.status(500).json({ success: false, message: 'Snapshot save failed' });
+  }
+};
+
+// --- Plan 8.1: Data Export Endpoint (Data Portability) ---
+export const exportMyData = async (req, res) => {
+  try {
+    const traineeId = req.user?.id;
+    if (!traineeId || req.user?.type !== 'TRAINEE') {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+
+    const trainee = await prisma.trainee.findUnique({
+      where: { id: traineeId },
+      include: {
+        test: {
+          select: { title: true, type: true }
+        },
+        answerSheet: {
+          include: {
+            answers: {
+              select: { questionId: true, options: true, isBookmarked: true }
+            }
+          }
+        },
+        results: {
+          select: { score: true, testId: true, createdAt: true }
+        },
+        examEvents: {
+          select: { eventType: true, timestamp: true, testId: true } // Excludes IP addresses if any were here
+        }
+      }
+    });
+
+    if (!trainee) {
+      return res.status(404).json({ success: false, message: "Trainee not found" });
+    }
+
+    // Prepare JSON bundle compliant with right to data portability
+    const exportBundle = {
+      profile: {
+        name: trainee.name,
+        emailid: trainee.emailid,
+        contact: trainee.contact,
+        organisation: trainee.organisation,
+        location: trainee.location,
+        consentGivenAt: trainee.consentGivenAt
+      },
+      examHistory: [
+        {
+          testId: trainee.testId,
+          testTitle: trainee.test?.title,
+          answers: trainee.answerSheet?.answers || [],
+          score: trainee.results[0]?.score,
+          submittedAt: trainee.results[0]?.createdAt
+        }
+      ],
+      examEvents: trainee.examEvents
+    };
+
+    return res.json({
+      success: true,
+      message: "Data export successful",
+      data: exportBundle
+    });
+
+  } catch (err) {
+    logger.error(`Export data error: ${err.stack}`);
+    return res.status(500).json({ success: false, message: "Internal server error during data export", error: err.message });
+  }
 };

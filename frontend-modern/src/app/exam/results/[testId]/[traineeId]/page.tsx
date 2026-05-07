@@ -104,7 +104,7 @@ export default function ResultsPage() {
             </div>
             <Title level={1} className="text-white mb-2">Examination Submitted!</Title>
             <Paragraph className="text-indigo-100 text-lg max-w-2xl mx-auto">
-              Well done, {results?.trainee?.name || 'Candidate'}! You have successfully completed the <strong>{results?.test?.title || 'Examination'}</strong>. 
+              Well done, {results?.trainee?.name || 'Candidate'}! You have successfully completed the <strong>Examination</strong>. 
               Your results will be processed and shared with you by your trainer via email shortly.
             </Paragraph>
           </Card>
@@ -163,14 +163,39 @@ export default function ResultsPage() {
               <Paragraph className="text-slate-500 text-lg mb-8">
                 Thank you for your response. You may now close this window or return to the main portal.
               </Paragraph>
-              <Button 
-                type="default" 
-                size="large" 
-                onClick={() => window.location.href = '/'}
-                className="rounded-xl h-12 px-10 font-bold"
-              >
-                Go to Homepage
-              </Button>
+              <Space size="middle" wrap className="justify-center mt-4">
+                <Button 
+                  type="default" 
+                  size="large" 
+                  onClick={() => window.location.href = '/'}
+                  className="rounded-xl h-12 px-10 font-bold"
+                >
+                  Go to Homepage
+                </Button>
+                <Button 
+                  type="dashed" 
+                  size="large" 
+                  icon={<Download size={16} />}
+                  onClick={async () => {
+                    try {
+                      const { default: apiClient } = await import('@/services/apiClient');
+                      const { data } = await apiClient.get('/api/v1/trainee/export-my-data');
+                      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = 'my-exam-data.json';
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    } catch (error) {
+                      console.error('Data export failed:', error);
+                    }
+                  }}
+                  className="rounded-xl h-12 px-10 font-bold border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+                >
+                  Download my data
+                </Button>
+              </Space>
             </Card>
           )}
         </div>

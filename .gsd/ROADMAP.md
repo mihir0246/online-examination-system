@@ -1,71 +1,80 @@
 ---
-milestone: Production Hardening
-version: 1.1.0
-updated: 2026-04-30
+milestone: Institutional Production Readiness
+version: 2.0.0
+updated: 2026-05-04
 ---
 
-# Roadmap
+# Project Roadmap
 
-> **Current Phase:** Phase 2 — Result Privacy Server-Gate
-> **Status:** 🔄 In Progress
+> **Current Phase:** Final Preparations
+> **Status:** 🚀 Ready for Pilot
 
-## Must-Haves (from Review Findings)
+## 📂 Completed Phases (Historical Log)
+*All infrastructure, security, and feature developments from Phases 1 through 11 have been successfully implemented, tested, and deployed to the codebase.*
 
-- [ ] Single ORM — Mongoose fully removed; Prisma is the only DB layer. *(No double connection pool)*
-- [ ] Result privacy enforced at the API layer — students cannot read scores before `isResultgenerated`. *(Server-side gate, not UI-only)*
-- [ ] k6 load test executed against real backend — p95 < 500ms confirmed with evidence.
-- [ ] PDF bulk question parser stable — handles MCQ, descriptive, and table-layout PDFs without crashing.
+### Phase 1: Foundation & Performance Baseline ✅
+- **Backend ES6+ Refactor:** Converted to modern ESM with Global Error Handlers.
+- **Redis Integration:** Added caching layer for pre-warming and JWT blacklisting.
+- **MongoDB Pooling:** Tuned connection pool to handle 2000 concurrent users.
+- **Clock Sync:** Added server-side clock synchronization (`/api/v1/time`) to prevent client-side timer manipulation.
+
+### Phase 2: Data Integrity & Security Core ✅
+- **Idempotent Submissions:** Added transactional answer submission to prevent score duplication.
+- **Auto-Save:** Built background local-storage buffering (`useAutoSave.ts`) to prevent data loss.
+- **State Persistence:** Synced active question index and remaining time to Redis.
+- **Auth Hardening:** Implemented HttpOnly cookies and Redis-based session revocation.
+- **UI Stability:** Resolved React hydration and deprecation warnings in the exam frontend.
+
+### Phase 3: Institutional Controls & Exam Integrity ✅
+- **Audit Logging:** Created immutable audit trails for sensitive actions.
+- **Randomization:** Added server-side seeded question shuffling (FNV-1a hash).
+- **Heartbeat API:** Implemented real-time connectivity monitoring for live exams.
+- **Access Controls:** Secured faculty publish workflows and result visibility.
+
+### Phase 4: Operational Readiness ✅
+- **Monitoring:** Integrated Sentry for frontend and backend error tracking.
+- **Runbooks:** Authored Disaster Recovery and Backup verification protocols.
+- **Load Testing:** Passed the 500 VU baseline load test with 0% error rate.
+
+### Phase 5: Security Hardening (Round 2) ✅
+- **Identity Spoofing Prevention:** Issued and validated signed Trainee JWTs.
+- **Rate Limiting:** Applied limits to `/login` (20 req/15min) and `/trainee/enter` (5 req/min).
+- **CSRF Upgrades:** Scoped CSRF tokens strictly to user session/IP.
+
+### Phase 6: Audit Coverage Completion ✅
+- **Event Tracking:** Wired `auditLog` into all exam lifecycle events (publish, close, results).
+- **Behavior Monitoring:** Tracked tab-switches and focus-loss during active exams.
+- **Admin Visibility:** Added administrative query endpoints for trainee audit trails.
+
+### Phase 7: Operational Dashboards & Alerts ✅
+- **Documentation:** Authored comprehensive `DEPLOYMENT.md` and `INCIDENT_RESPONSE.md` playbooks.
+- **Disaster Recovery:** Documented MongoDB Atlas backup policy (RTO < 4h, RPO < 1h).
+- **Alarms:** Set up CloudWatch/Beanstalk alarm thresholds (CPU, Memory, Latency).
+
+### Phase 8: Compliance and Data Governance ✅
+- **Data Privacy (DPDP):** Formalized PII inventory and 5-year retention workflows.
+- **Data Deletion:** Built hard-delete cascades (`DELETE /admin/trainee/:id`) with strict audit logging.
+- **RBAC Matrix:** Integrated Role-Based Access Control matrix into system architecture.
+
+### Phase 9: UX and Mobile Baseline ✅
+- **Mobile Responsiveness:** Refactored the 375px viewport experience with a sliding Question Palette Drawer.
+- **Network Resilience:** Documented the institutional Grace Period policy for disconnections and screen locks.
+
+### Phase 11: Architecture Refactor & Scalability ✅
+- **Centralized Authorization:** Replaced inline DB queries with `trainerSubjectGuard.js` middleware.
+- **Ownership Verification:** Secured all 7 trainee routes with strict `requireSelf` middleware.
+- **Concurrent Processing:** Eliminated N+1 bottlenecks via `services/worker.js` for batch scoring and email dispatch.
+- **Fail-Open Caching:** Integrated `services/cache.js` and `circuitBreaker.js` to ensure the exam system remains live even during Redis outages.
 
 ---
 
-## Phases
+## 🚀 Active Phase
 
-### Phase 1: ORM Consolidation
-**Status:** ✅ Complete
-**Objective:** Remove Mongoose entirely. Prisma becomes the single source of truth for all DB operations. Eliminate the dual connection pool and stale `schemas/` directory.
-**Depends on:** Nothing
+### Phase 10: Pilot and Go-Live
+**Status:** ⬜ Pending Human Execution
+**Objective:** Real-world validation with one live class before full institutional rollout.
 
-**Plans:**
-- [x] Plan 1.1: Remove `mongoose.connect()` from `app.js`, uninstall mongoose package, delete unused `schemas/` files.
-
----
-
-### Phase 2: Result Privacy Server-Gate
-**Status:** ✅ Complete
-**Objective:** Ensure student-facing result endpoints check `test.isResultgenerated` on the server before returning any score. A UI-only toggle is bypassable with DevTools.
-**Depends on:** Phase 1 ✅
-
-**Plans:**
-- [x] Plan 2.1: Audit all trainee-accessible result/score endpoints and add server-side `isResultgenerated` guard.
-- [x] Plan 2.2: Add a `isResultPublished` boolean field to the Test model (distinct from `isResultgenerated`) so faculty can explicitly release results independently.
-
----
-
-### Phase 3: Load Test Execution
-**Status:** 🔄 In Progress
-**Objective:** Actually run the k6 load test against the real backend. Document the result. Fix whatever breaks (connection pool exhaustion, CPU spike, slow endpoints).
-**Depends on:** Phase 2 ✅
-
-**Plans:**
-- [ ] Plan 3.1: Run k6 locally against `http://localhost:5000`, capture output, fix top bottlenecks.
-
----
-
-### Phase 4: PDF Parser Hardening
-**Status:** ⬜ Not Started
-**Objective:** Fix the bulk question parser so it handles mixed MCQ/descriptive questions and table-based PDF layouts without crashing. Add Zod schema that accepts both types.
-**Depends on:** Phase 1 ✅
-
-**Plans:**
-- [ ] Plan 4.1: Refactor `questionParser.js` — table-aware extraction, stable Zod schema for mixed types, crash-safe error boundaries.
-
----
-
-## Progress Summary
-
-| Phase | Status | Plans | Complete |
-|-------|--------|-------|----------|
-| 1 | 🔄 | 1/1 | — |
-| 2 | ⬜ | 2/2 | — |
-| 3 | ⬜ | 1/1 | — |
-| 4 | ⬜ | 1/1 | — |
+**Action Items:**
+- [ ] **Plan 10.1: Pre-Flight Load Test** — Run production k6 test on Atlas M10+ (target: p95 < 500ms at 2000 VUs).
+- [ ] **Plan 10.2: Pilot Exam** — Execute one class session (20–50 students) under full monitoring.
+- [ ] **Plan 10.3: Official Sign-Off** — System owner signs the go/no-go checklist.

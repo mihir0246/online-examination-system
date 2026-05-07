@@ -1,181 +1,296 @@
-# Disaster Recovery Runbook
-**System:** Online Examination System  
-**Version:** 1.0 | **Updated:** 2026-04-24  
-**On-Call:** Backend Lead / DevOps
+# GSD Runbook
 
-> ⚠️ **Never apply hotfixes directly to production. All changes must pass Staging first.**
+> Operational procedures for debugging, validation, and recovery.
 
 ---
 
-## Severity Levels
+## Quick Commands
 
-| Severity | Definition | Response Time |
-|----------|------------|---------------|
-| **P0** | Exam in progress, data loss occurring | Immediate (< 5 min) |
-| **P1** | Service down, exam blocked | 15 min |
-| **P2** | Degraded performance, no data loss | 1 hour |
-| **P3** | Non-critical issue | Next business day |
+### Status Check
 
----
+**PowerShell:**
+```powershell
+# Current git status
+git status
 
-## Runbook 1: Application Rollback
-
-**Trigger:** Sentry alert for elevated 5xx rate (> 5% over 5 minutes)
-
-```bash
-# 1. Identify last stable deployment
+# Recent commits
 git log --oneline -10
 
-# 2. Roll back to previous tag
-git checkout <last-stable-tag>
+# Current branch
+git branch --show-current
+```
 
-# 3. Restart backend
-pm2 restart sitrain  # or: eb deploy (Elastic Beanstalk)
+**Bash:**
+```bash
+# Current git status
+git status
 
-# 4. Verify health check
-curl https://api.yourdomain.com/health
-# Expected: {"status":"UP","timestamp":"..."}
+# Recent commits
+git log --oneline -10
 
-# 5. Check error rate drops in Sentry dashboard
+# Current branch
+git branch --show-current
 ```
 
 ---
 
-## Runbook 2: MongoDB Atlas Backup Restore
+## Wave Validation
 
-**Trigger:** Data corruption detected OR accidental collection drop
+### Verify Wave Completion
+
+**Before marking a wave complete:**
+
+1. All tasks have commits:
+   ```powershell
+   git log --oneline -N  # N = number of tasks in wave
+   ```
+
+2. All verifications passed (documented in SUMMARY.md)
+
+3. STATE.md updated with current position
+
+4. State snapshot created
+
+### Wave Rollback
+
+**If a wave needs to be reverted:**
+
+```powershell
+# Find commit before wave started
+git log --oneline -20
+
+# Reset to that commit (keeps changes staged)
+git reset --soft <commit-hash>
+
+# Or hard reset (discards changes)
+git reset --hard <commit-hash>
+```
+
+---
+
+## Debugging Procedures
+
+### 3-Strike Rule
+
+After 3 consecutive failed debug attempts:
+
+1. **Stop** — Don't try a 4th approach in same session
+
+2. **Document** in STATE.md:
+   ```markdown
+   ## Debug Session
+   
+   **Problem:** {description}
+   
+   **Attempts:**
+   1. {approach 1} → {result}
+   2. {approach 2} → {result}
+   3. {approach 3} → {result}
+   
+   **Hypothesis:** {current theory}
+   
+   **Recommended next:** {suggested approach}
+   ```
+
+3. **Fresh session** — Start new conversation with documented context
+
+### Log Inspection
+
+**Find relevant logs:**
+
+```powershell
+# Search for error patterns
+Select-String -Path "*.log" -Pattern "error|exception|failed" -CaseSensitive:$false
+```
 
 ```bash
-# --- Atlas UI Restore ---
-# 1. Login to https://cloud.mongodb.com
-# 2. Navigate to: Project → Database → Backup
-# 3. Select the snapshot BEFORE the incident timestamp
-# 4. Click "Restore" → "Restore to New Cluster" (DO NOT restore to live cluster)
-# 5. Validate data integrity on restored cluster:
-#    db.AnswerSheet.count() — should match last known count
-#    db.Result.count()
-# 6. If validated, redirect connection string to restored cluster in .env
-# 7. Restart application
-
-# --- Point-in-Time Restore (Atlas M10+) ---
-# Atlas → Backup → Point in Time → Select timestamp just before incident
+# Search for error patterns
+grep -ri "error\|exception\|failed" *.log
 ```
-
-**Post-restore checklist:**
-- [ ] Verify all trainee submissions present (check AnswerSheet.completed count)
-- [ ] Verify Result records match AnswerSheet records
-- [ ] Run audit log query for last 24h to confirm integrity
-- [ ] Notify affected users via email
 
 ---
 
-## Runbook 3: Redis Failure & Recovery
+## Verification Commands
 
-**Trigger:** Circuit breaker OPEN (logs show `[CircuitBreaker:redis] OPEN`)
+### Build Verification
 
+```powershell
+# Node.js
+npm run build
+if ($LASTEXITCODE -eq 0) { Write-Host "✅ Build passed" }
+
+# Python
+python -m py_compile src/**/*.py
+```
+
+### Test Verification
+
+```powershell
+# Node.js
+npm test
+
+# Python
+pytest -v
+
+# Go
+go test ./...
+```
+
+### Lint Verification
+
+```powershell
+# Node.js
+npm run lint
+
+# Python
+ruff check .
+
+# Go
+golangci-lint run
+```
+
+---
+
+## State Recovery
+
+### From STATE.md
+
+When resuming work:
+
+1. Read STATE.md for current position
+2. Check "Last Action" for context
+3. Follow "Next Steps" to continue
+4. Verify recent commits match documented progress
+
+### From Git History
+
+If STATE.md is outdated:
+
+```powershell
+# See recent work
+git log --oneline -20
+
+# Check specific commit details
+git show <commit-hash> --stat
+
+# View file at specific commit
+git show <commit-hash>:path/to/file
+```
+
+### Context Pollution Recovery
+
+If quality is degrading mid-session:
+
+1. Create state snapshot immediately
+2. Update STATE.md with full context
+3. Commit any pending work
+4. Start fresh session
+5. Run `/resume` to reload context
+
+---
+
+## Search Commands
+
+### Find in Codebase
+
+**PowerShell:**
+```powershell
+# Find pattern in files
+Select-String -Path "src/**/*.ts" -Pattern "TODO" -Recurse
+
+# Find files by name
+Get-ChildItem -Recurse -Filter "*.config.*"
+```
+
+**Bash:**
 ```bash
-# 1. Check Redis connectivity
-redis-cli -h $REDIS_HOST -p $REDIS_PORT ping
-# Expected: PONG
+# Find pattern in files (with ripgrep)
+rg "TODO" --type ts
 
-# 2. If Redis is down, the circuit breaker will fail-open.
-#    Auth blacklisting, heartbeat, and idempotency degrade gracefully.
-#    No immediate action required unless Redis is down > 30 minutes.
+# Find pattern in files (with grep)
+grep -r "TODO" src/
 
-# 3. Restart Redis (if self-hosted)
-sudo systemctl restart redis
+# Find files by name
+find . -name "*.config.*"
+```
 
-# 4. After Redis restores, circuit breaker auto-recovers in 30s (HALF_OPEN probe)
+### Search-First Workflow
 
-# 5. Pre-warm after recovery
-curl -X POST https://api.yourdomain.com/api/v1/admin/prewarm \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
+Before reading any file:
+
+1. Search for relevant terms:
+   ```powershell
+   Select-String -Path "**/*.md" -Pattern "architecture" -Recurse
+   ```
+
+2. Identify candidate files from results
+
+3. Read only relevant sections:
+   ```powershell
+   Get-Content file.md | Select-Object -Skip 49 -First 20  # Lines 50-70
+   ```
+
+---
+
+## Common Issues
+
+### "SPEC.md not FINALIZED"
+
+**Cause:** Planning lock prevents implementation
+
+**Fix:**
+1. Open `.gsd/SPEC.md`
+2. Complete all required sections
+3. Change status to `Status: FINALIZED`
+4. Retry command
+
+### "Context degrading"
+
+**Symptoms:** Shorter responses, skipped steps, inconsistency
+
+**Fix:**
+1. Create state snapshot
+2. Commit current work
+3. Start fresh session
+4. Run `/resume`
+
+### "Commit failed"
+
+**Causes:** Staged conflicts, hook failures
+
+**Debug:**
+```powershell
+git status
+git diff --staged
 ```
 
 ---
 
-## Runbook 4: Full Service Recovery Sequence
+## Checklist Templates
 
-**Use when:** Complete service outage (EC2 failure, deployment crash)
+### Pre-Execution Checklist
 
-```bash
-# Step 1: Check health
-curl https://api.yourdomain.com/health
+- [ ] SPEC.md is FINALIZED
+- [ ] ROADMAP.md has current phase
+- [ ] STATE.md loaded and understood
+- [ ] Previous wave verified complete
 
-# Step 2: Check MongoDB
-# Atlas dashboard → Metrics → Connection count
+### Post-Wave Checklist
 
-# Step 3: Check Redis
-redis-cli ping
+- [ ] All tasks committed
+- [ ] Verifications documented
+- [ ] STATE.md updated
+- [ ] State snapshot created
+- [ ] No uncommitted changes
 
-# Step 4: Review logs
-pm2 logs sitrain --lines 200
-# or: eb logs (Elastic Beanstalk)
+### Session End Checklist
 
-# Step 5: Restart services in order
-pm2 restart sitrain
-
-# Step 6: Verify recovery
-curl https://api.yourdomain.com/api/v1/time
-# Expected: {"serverTime":"..."}
-
-# Step 7: Run smoke test
-k6 run load-tests/k6-exam-session.js --vus 5 --duration 30s \
-  --env BASE_URL=https://api.yourdomain.com \
-  --env TEST_ID=<smoke-test-id>
-```
+- [ ] Current work committed
+- [ ] STATE.md has "Next Steps"
+- [ ] JOURNAL.md updated (if milestone)
+- [ ] No loose ends
 
 ---
 
-## Runbook 5: Exam-in-Progress Emergency
-
-**Trigger:** Server crash during live exam (P0)
-
-```bash
-# Trainees automatically benefit from:
-# - localStorage auto-save (answers preserved client-side)
-# - Redis state sync (last question/time saved)
-
-# 1. Restart backend ASAP (< 5 min)
-pm2 restart sitrain
-
-# 2. Notify trainees to refresh — they will resume from saved state
-# (Answersheet endpoint restores savedState from Redis on re-entry)
-
-# 3. If Redis also lost state — trainees can still submit via localStorage recovery
-# (useAutoSave replays pending answers on reconnect)
-
-# 4. Extend exam time if needed (admin panel → test management)
-```
-
----
-
-## Escalation Contacts
-
-| Role | Contact | When |
-|------|---------|------|
-| On-Call Engineer | [Set by institution] | P0, P1 |
-| MongoDB Atlas Support | 1-866-237-8317 | Atlas outage |
-| AWS Support | aws.amazon.com/support | EC2/Beanstalk issues |
-| Sentry Support | sentry.io/support | Monitoring issues |
-
----
-
-## Daily Health Verification (Pre-Exam)
-
-Run this check **15 minutes before any scheduled exam**:
-
-```bash
-# 1. Health endpoint
-curl https://api.yourdomain.com/health
-
-# 2. Time sync
-curl https://api.yourdomain.com/api/v1/time
-
-# 3. Redis ping (via pre-warm endpoint — requires ADMIN token)
-curl -X POST https://api.yourdomain.com/api/v1/admin/prewarm \
-  -H "Cookie: Token=$ADMIN_JWT"
-
-# 4. Verify exam not prematurely gated (testbegins should be false until start)
-# (Admin panel → Exam → Status)
-```
+*See PROJECT_RULES.md for canonical rules.*
+*See docs/model-selection-playbook.md for model guidance.*

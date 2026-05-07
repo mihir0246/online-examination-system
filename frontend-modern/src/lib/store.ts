@@ -1,17 +1,18 @@
 import { configureStore, createSlice, PayloadAction } from '@reduxjs/toolkit';
+import type { AuthUser } from './types';
 
 interface UserState {
   isLoggedIn: boolean;
-  userDetails: any | null;
+  userDetails: AuthUser | null;
   activeRoute: string;
 }
 
-const getInitialUser = () => {
+const getInitialUser = (): AuthUser | null => {
   if (typeof window !== 'undefined') {
     const saved = localStorage.getItem('user');
     try {
-      return saved ? JSON.parse(saved) : null;
-    } catch (e) {
+      return saved ? (JSON.parse(saved) as AuthUser) : null;
+    } catch {
       return null;
     }
   }
@@ -28,7 +29,7 @@ const authSlice = createSlice({
   name: 'auth',
   initialState,
   reducers: {
-    login: (state, action: PayloadAction<any>) => {
+    login: (state, action: PayloadAction<AuthUser>) => {
       state.isLoggedIn = true;
       state.userDetails = action.payload;
       if (typeof window !== 'undefined') {

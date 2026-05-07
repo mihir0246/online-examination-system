@@ -112,13 +112,12 @@ export const userSignup = async (req, res) => {
 };
 
 export const userlogout = async (req, res) => {
-  try {
-    // Extract token from cookie or Authorization header
-    const token = req.cookies?.['Token'] || 
-      req.headers?.authorization?.replace('Bearer ', '');
+  // Hoist token extraction above try — so it's in scope for audit + cookie clear
+  const token = req.cookies?.['Token'] ||
+    req.headers?.authorization?.replace('Bearer ', '');
 
+  try {
     if (token) {
-      // Decode to find remaining TTL (no verify needed — we just need the exp claim)
       let ttl = 24 * 60 * 60; // fallback: 24h
       try {
         const decoded = jwt.decode(token);
@@ -127,19 +126,16 @@ export const userlogout = async (req, res) => {
           if (remaining > 0) ttl = remaining;
         }
       } catch (_) { /* use fallback TTL */ }
-
-      // Blacklist token in Redis for its remaining lifetime
       const { blacklistToken } = await import('./redis.js');
       await blacklistToken(token, ttl);
     }
   } catch (err) {
     logger.error(`Logout blacklist error: ${err.message}`);
-    // Still proceed with logout even if blacklisting fails
+    // Still proceed — cookie must be cleared regardless of blacklist status
   }
 
-  // Plan 3.1: Audit logout
   if (token) {
-    auditLog({ event: AuditEvent.USER_LOGOUT, ip: req.ip, metadata: { tokenRevoked: true } });
+    auditLog({ event: AuditEvent.USER_LOGOUT, ip: req.ip, metadata: { tokenRevoked: !!token } });
   }
 
   res.clearCookie('Token', {
@@ -148,9 +144,6 @@ export const userlogout = async (req, res) => {
     sameSite: 'Lax',
     path: '/'
   });
-  res.json({
-    success: true,
-    message: "Logout successful"
-  });
+  res.json({ success: true, message: "Logout successful" });
 };
 

@@ -105,9 +105,11 @@ model Test {
   createdBy   User?   @relation(fields: [createdById], references: [id])
   createdById String? @db.ObjectId
 
-  trainees    Trainee[]
+  trainees     Trainee[]
   answerSheets AnswerSheet[]
   feedbacks    Feedback[]
+  results      Result[]
+  examEvents   ExamEvent[]
 }
 
 model Feedback {
@@ -130,15 +132,34 @@ model Trainee {
   contact      String
   organisation String
   location     String
+  consentGivenAt DateTime? // Plan 8: Record consent timestamp at registration
   
   test   Test   @relation(fields: [testId], references: [id], onDelete: Cascade)
   testId String @db.ObjectId
 
   answerSheet AnswerSheet?
-  results     Result[]
+  results     Result[]    // compound unique per (traineeId, testId) enforced on Result model
   feedback    Feedback?
+  examEvents  ExamEvent[]
 
   @@index([testId])
+}
+
+model ExamEvent {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  eventType String   
+  timestamp DateTime  @default(now())
+  metadata  Json?
+  expiresAt DateTime? 
+  
+  trainee   Trainee @relation(fields: [traineeId], references: [id])
+  traineeId String  @db.ObjectId
+
+  test   Test   @relation(fields: [testId], references: [id])
+  testId String @db.ObjectId
+
+  @@index([traineeId, testId])
+  @@index([expiresAt])
 }
 
 model AnswerSheet {
@@ -155,6 +176,8 @@ model AnswerSheet {
   traineeId String  @unique @db.ObjectId
 
   answers Answer[]
+
+  @@index([testId])
 }
 
 model Answer {
@@ -167,13 +190,22 @@ model Answer {
   isBookmarked  Boolean     @default(false)
   score         Float?
   isEvaluated   Boolean     @default(false)
+
+  @@index([answerSheetId, questionId])
 }
 
 model Result {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   score     Float
   createdAt DateTime @default(now())
-  
+  updatedAt DateTime @updatedAt
+
   trainee   Trainee @relation(fields: [traineeId], references: [id])
   traineeId String  @db.ObjectId
+
+  test   Test   @relation(fields: [testId], references: [id])
+  testId String @db.ObjectId
+
+  @@unique([traineeId, testId])  // compound key — prevents duplicate results per (student, test)
+  @@index([traineeId])
 }

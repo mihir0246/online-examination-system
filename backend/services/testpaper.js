@@ -5,7 +5,7 @@ import { reportQueue } from "./queue.js";
 import { gresult } from "./generateResults.js";
 import { getIO } from "./socket.js";
 import { sendmail } from "./mail.js";
-import moment from "moment";
+import { auditFromReq, AuditEvent } from "./auditLog.js";
 
 const testSchema = z.object({
   type: z.string().min(1, "Type is required"),
@@ -28,10 +28,7 @@ export const createEditTest = async (req, res, next) => {
     });
   }
 
-  if (req.user.type !== 'TRAINER' && req.user.type !== 'ADMIN') {
-    return res.status(401).json({ success: false, message: "Unauthorized" });
-  }
-
+  // Role check delegated to requireRole middleware in routes/testpaper.js
   try {
     const { title, questions, type, difficulty, organisation, duration, subjects, _id } = validation.data;
 
@@ -107,16 +104,7 @@ export const getSingletest = async (req, res, next) => {
       return res.status(404).json({ success: false, message: "Test not found" });
     }
 
-    // RBAC: Trainers can only view tests if they are assigned to at least one of its subjects
-    if (req.user.type === 'TRAINER') {
-      const u = await prisma.user.findUnique({ where: { id: req.user.id }, select: { subjectIds: true }});
-      const assigned = u.subjectIds || [];
-      const hasAccess = testpaper.subjectIds.some(s => assigned.includes(s));
-      if (!hasAccess && testpaper.subjectIds.length > 0) {
-        return res.status(403).json({ success: false, message: "Unauthorized: You do not have access to this test's subjects." });
-      }
-    }
-
+    // Trainer subject access validated by requireTestAccess middleware
     return res.json({
       success: true,
       message: "Success",
@@ -140,9 +128,8 @@ export const getAlltests = async (req, res, next) => {
       } else {
         query.subjectIds = { hasSome: ["000000000000000000000000"] }; // No access
       }
-    } else if (req.user.type !== 'ADMIN') {
-      query.createdById = req.user.id;
     }
+    // ADMIN sees everything (no filter needed)
 
     const testpapers = await prisma.test.findMany({
       where: query,
@@ -166,6 +153,24 @@ export const getAlltests = async (req, res, next) => {
 export const deleteTest = async (req, res, next) => {
   try {
     const { _id } = req.body;
+
+    // Safety guard: refuse to delete a test that is currently live
+    const testRecord = await prisma.test.findUnique({
+      where: { id: _id },
+      select: { testbegins: true, testconducted: true }
+    });
+
+    if (!testRecord) {
+      return res.status(404).json({ success: false, message: "Test not found" });
+    }
+
+    if (testRecord.testbegins && !testRecord.testconducted) {
+      return res.status(409).json({
+        success: false,
+        message: "Cannot delete a test that is currently live. End the exam first."
+      });
+    }
+
     await prisma.test.update({
       where: { id: _id },
       data: { status: false }
@@ -190,6 +195,9 @@ export const beginTest = async (req, res, next) => {
       data: { testbegins: true, isRegistrationavailable: false }
     });
     
+    // Phase 6: Audit log
+    await auditFromReq(req, AuditEvent.TEST_PUBLISHED, { testId: id });
+
     // Notify waiting candidates
     try {
       const io = getIO();
@@ -227,17 +235,17 @@ export const endTest = async (req, res, next) => {
       }
     });
 
-    // Queue background job for report generation
-    await reportQueue.add({
-      testId: id,
-      type: 'FULL_REPORT'
-    });
+    // Queue background job for report generation (degrades gracefully if Redis is down)
+    if (reportQueue) {
+      await reportQueue.add({ testId: id, type: 'FULL_REPORT' });
+    } else {
+      logger.warn(`⚠️ reportQueue unavailable — skipping background report for test ${id}`);
+    }
 
-    // Mark all answer sheets as completed and generate results
+    // Mark all answer sheets as completed
     const answerSheets = await prisma.answerSheet.findMany({
       where: { testId: id, completed: false }
     });
-    
     if (answerSheets.length > 0) {
       await prisma.answerSheet.updateMany({
         where: { testId: id, completed: false },
@@ -246,14 +254,23 @@ export const endTest = async (req, res, next) => {
     }
 
     // Force result generation for everyone who started an answer sheet
+    // Uses Promise.allSettled so one failure doesn't block others
     const allSheets = await prisma.answerSheet.findMany({ where: { testId: id } });
-    for (const sheet of allSheets) {
-      try {
-        await gresult(sheet.traineeId, id);
-      } catch (err) {
-        logger.error(`Error generating result for trainee ${sheet.traineeId}: ${err.message}`);
-      }
+    const RESULT_CONCURRENCY = 5; // max parallel gresult() calls
+    for (let i = 0; i < allSheets.length; i += RESULT_CONCURRENCY) {
+      const batch = allSheets.slice(i, i + RESULT_CONCURRENCY);
+      await Promise.allSettled(
+        batch.map(sheet =>
+          gresult(sheet.traineeId, id).catch(err =>
+            logger.error(`Error generating result for trainee ${sheet.traineeId}: ${err.message}`)
+          )
+        )
+      );
     }
+
+    // Phase 6: Audit log
+    await auditFromReq(req, AuditEvent.TEST_CLOSED, { testId: id });
+    await auditFromReq(req, AuditEvent.RESULT_GENERATED, { testId: id });
 
     return res.json({
       success: true,
@@ -408,16 +425,6 @@ export const getTestStats = async (req, res) => {
     
     if (!test) return res.status(404).json({ success: false, message: "Test not found" });
 
-    // RBAC: Trainers can only view stats if they are assigned to at least one of its subjects
-    if (req.user.type === 'TRAINER') {
-      const u = await prisma.user.findUnique({ where: { id: req.user.id }, select: { subjectIds: true }});
-      const assigned = u.subjectIds || [];
-      const hasAccess = test.subjectIds.some(s => assigned.includes(s));
-      if (!hasAccess && test.subjectIds.length > 0) {
-        return res.status(403).json({ success: false, message: "Unauthorized: You do not have access to this test's stats." });
-      }
-    }
-
     const maxMarks = test.questions.reduce((sum, q) => sum + q.weightage, 0) || 100;
     const results = test.trainees
       .map(t => t.results.length > 0 ? t.results[t.results.length - 1] : null)
@@ -474,15 +481,7 @@ export const evaluateAnswer = async (req, res) => {
   try {
     const { answerId, score, traineeId, testId } = req.body;
 
-    if (req.user.type === 'TRAINER') {
-      const u = await prisma.user.findUnique({ where: { id: req.user.id }, select: { subjectIds: true }});
-      const test = await prisma.test.findUnique({ where: { id: testId }, select: { subjectIds: true }});
-      if (!test) return res.status(404).json({ success: false, message: "Test not found" });
-      const hasAccess = test.subjectIds.some(s => (u.subjectIds || []).includes(s));
-      if (!hasAccess && test.subjectIds.length > 0) {
-         return res.status(403).json({ success: false, message: "Unauthorized" });
-      }
-    }
+    // Trainer subject access validated by requireTestAccess middleware
 
     // Find Answer and Question to check max weightage
     const answer = await prisma.answer.findUnique({
@@ -589,10 +588,18 @@ export const sendAllResultsEmail = async (req, res, next) => {
     const testTitle = test.title;
     let sentCount = 0;
 
-    for (const trainee of test.trainees) {
-      if (trainee.results.length > 0) {
-        const score = trainee.results[0].score;
-        const html = `<div style='font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;'>
+    // Collect trainees who have results
+    const traineesWithResults = test.trainees
+      .filter(t => t.results.length > 0)
+      .map(t => ({ trainee: t, score: t.results[0].score }));
+
+    // Send emails in parallel batches of 10 to avoid overwhelming SMTP
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < traineesWithResults.length; i += BATCH_SIZE) {
+      const batch = traineesWithResults.slice(i, i + BATCH_SIZE);
+      await Promise.allSettled(
+        batch.map(({ trainee, score }) => {
+          const html = `<div style='font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;'>
           <h2 style='color: #4f46e5; border-bottom: 2px solid #4f46e5; padding-bottom: 10px;'>Official Result: ${testTitle}</h2>
           <p>Dear <strong>${trainee.name}</strong>,</p>
           <p>Your official performance report for the <strong>${testTitle}</strong> examination has been released.</p>
@@ -604,11 +611,19 @@ export const sendAllResultsEmail = async (req, res, next) => {
           <br/>
           <p style='color: #9ca3af; font-size: 12px;'>Regards,<br/>Examination Management Team</p>
         </div>`;
-
-        await sendmail(trainee.emailid, `Result Released: ${testTitle}`, `Your score is ${score}`, html);
-        sentCount++;
-      }
+          return sendmail(trainee.emailid, `Result Released: ${testTitle}`, `Your score is ${score}`, html)
+            .then(() => { sentCount++; })
+            .catch(err => logger.error(`Email failed for ${trainee.emailid}: ${err.message}`));
+        })
+      );
     }
+
+    // Phase 6: Publish results and Audit
+    await prisma.test.update({
+      where: { id: testId },
+      data: { isResultPublished: true }
+    });
+    await auditFromReq(req, AuditEvent.RESULT_PUBLISHED, { testId, traineeCount: sentCount, notifiedAt: new Date().toISOString() });
 
     return res.json({ success: true, message: `Successfully released results to ${sentCount} candidates!` });
   } catch (err) {

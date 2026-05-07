@@ -24,6 +24,16 @@ export const useExamSession = (testId: string, traineeId: string) => {
     }
   });
 
+  // Handle mid-exam token expiry
+  useEffect(() => {
+    const handleTokenExpiry = () => {
+      console.warn('Token expired during exam. Showing offline indicator.');
+      setConnectionError(true);
+    };
+    window.addEventListener('exam_token_expired', handleTokenExpiry);
+    return () => window.removeEventListener('exam_token_expired', handleTokenExpiry);
+  }, []);
+
   const { data: sessionData, isLoading } = useQuery({
     queryKey: ['exam-session', testId, traineeId],
     queryFn: async () => {
@@ -84,7 +94,13 @@ export const useExamSession = (testId: string, traineeId: string) => {
           setConnectionError(true);
           return null;
         }
-        
+        if (err.response?.status === 409) {
+          console.warn('Exam already submitted (409). Ending session locally.');
+          setIsExamOver(true);
+          setConnectionError(false);
+          return null;
+        }
+
         console.error('Exam session critical fetch error:', err.response?.status, err.response?.data || err.message);
         throw err;
       }
@@ -92,7 +108,7 @@ export const useExamSession = (testId: string, traineeId: string) => {
     enabled: !!testId && !!traineeId,
     refetchInterval: (testNotStarted || connectionError) ? 5000 : false,
     retry: (failureCount, error: any) => {
-      if (error?.response?.status === 400) return false;
+      if (error?.response?.status === 400 || error?.response?.status === 409) return false;
       return failureCount < 2;
     },
     staleTime: Infinity, // Keep data in cache, only refresh manually or via focus

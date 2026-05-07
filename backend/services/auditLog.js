@@ -14,20 +14,28 @@ export const AuditEvent = Object.freeze({
   // Auth events
   USER_LOGIN:           'USER_LOGIN',
   USER_LOGOUT:          'USER_LOGOUT',
+  AUTH_FAILURE:         'AUTH_FAILURE',
   // Exam lifecycle
   EXAM_START:           'EXAM_START',
   ANSWER_SAVED:         'ANSWER_SAVED',
   EXAM_SUBMITTED:       'EXAM_SUBMITTED',
-  EXAM_FORCE_SUBMITTED: 'EXAM_FORCE_SUBMITTED',  // time expired
+  EXAM_FORCE_SUBMITTED: 'EXAM_FORCE_SUBMITTED',
+  EXAM_WINDOW_VIOLATION:'EXAM_WINDOW_VIOLATION',
   // Results
   RESULT_GENERATED:     'RESULT_GENERATED',
   RESULT_PUBLISHED:     'RESULT_PUBLISHED',
+  RESULT_ACCESS_DENIED: 'RESULT_ACCESS_DENIED',
   // Test management
   TEST_PUBLISHED:       'TEST_PUBLISHED',
   TEST_CLOSED:          'TEST_CLOSED',
   // Security
   TOKEN_REVOKED:        'TOKEN_REVOKED',
   UNAUTHORIZED_ACCESS:  'UNAUTHORIZED_ACCESS',
+  OWNERSHIP_VIOLATION:  'OWNERSHIP_VIOLATION',
+  RATE_LIMIT_HIT:       'RATE_LIMIT_HIT',
+  
+  // Compliance
+  TRAINEE_DELETED:      'TRAINEE_DELETED',
 });
 
 // ── Core log writer ────────────────────────────────────────────────────────────

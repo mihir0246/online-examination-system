@@ -73,13 +73,12 @@ export default function ExamsPage() {
     },
     {
       title: 'Status',
-      dataIndex: 'status',
       key: 'status',
-      render: (status: boolean) => (
-        <Tag color={status ? 'green' : 'red'}>
-          {status ? 'ACTIVE' : 'INACTIVE'}
-        </Tag>
-      )
+      render: (_: any, record: Exam) => {
+        if (record.testconducted) return <Tag color="red">CONDUCTED</Tag>;
+        if (record.testbegins) return <Tag color="green">LIVE</Tag>;
+        return <Tag color="blue">UPCOMING</Tag>;
+      }
     },
     {
       title: 'Action',

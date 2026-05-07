@@ -5,8 +5,7 @@ import path from 'path';
 import { s3Client, uploadToS3 } from "../services/s3.js";
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import FileType from 'file-type';
-const { fileTypeFromBuffer } = FileType;
+import { fileTypeFromBuffer } from 'file-type';
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB

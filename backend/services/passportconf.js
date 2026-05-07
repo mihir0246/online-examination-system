@@ -72,39 +72,34 @@ passport.use('user-token', new JwtStrategy(opts, async (req, jwt_payload, done) 
   try {
     // Extract the raw token to check against blacklist
     const rawToken = ExtractJwt.fromExtractors(tokenExtractors)(req);
-
     if (rawToken) {
       const blacklisted = await isTokenBlacklisted(rawToken);
       if (blacklisted) {
         logger.warn(`Blocked blacklisted token for user ${jwt_payload.id}`);
-        return done(null, false, {
-          success: false,
-          message: "Session has been revoked. Please log in again."
-        });
+        return done(null, false, { success: false, message: 'Session has been revoked. Please log in again.' });
       }
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: jwt_payload.id }
-    });
-
-    if (user) {
-      return done(null, user, {
-        success: true,
-        message: "Authorized"
-      });
-    } else {
-      return done(null, false, {
-        success: false,
-        message: "Unauthorized"
-      });
+    // Bug#9 Fix: Trainees are stored in a separate collection from Users.
+    // Route the DB lookup by token type to avoid 401 on all exam routes.
+    if (jwt_payload.type === 'TRAINEE') {
+      const trainee = await prisma.trainee.findUnique({ where: { id: jwt_payload.id } });
+      if (trainee) {
+        return done(null, { ...trainee, type: 'TRAINEE' }, { success: true, message: 'Authorized' });
+      }
+      return done(null, false, { success: false, message: 'Trainee not found' });
     }
+
+    // ADMIN / TRAINER — look up in the User collection
+    const user = await prisma.user.findUnique({ where: { id: jwt_payload.id } });
+    if (user) {
+      return done(null, user, { success: true, message: 'Authorized' });
+    }
+    return done(null, false, { success: false, message: 'Unauthorized' });
+
   } catch (err) {
     logger.error(`JWT validation error: ${err.message}`);
-    return done(err, false, {
-      success: false,
-      message: "Session error"
-    });
+    return done(err, false, { success: false, message: 'Session error' });
   }
 }));
 

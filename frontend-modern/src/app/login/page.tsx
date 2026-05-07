@@ -97,6 +97,7 @@ export default function LoginPage() {
                         prefix={<User className="w-4 h-4 text-slate-400 mr-2" />}
                         className="bg-[#2a3441] border-none text-white h-11"
                         placeholder="example@mail.com"
+                        suppressHydrationWarning={true}
                       />
                     )}
                   />
@@ -115,6 +116,7 @@ export default function LoginPage() {
                         prefix={<Lock className="w-4 h-4 text-slate-400 mr-2" />}
                         className="bg-[#2a3441] border-none text-white h-11"
                         placeholder="•••••"
+                        suppressHydrationWarning={true}
                       />
                     )}
                   />
@@ -127,6 +129,7 @@ export default function LoginPage() {
                 size="large" 
                 loading={loading}
                 className="h-11 bg-[#0d3b66] hover:bg-[#1a508b] border-none mt-4"
+                suppressHydrationWarning={true}
               >
                 {!loading ? 'Login' : 'Authenticating...'}
               </Button>

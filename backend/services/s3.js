@@ -39,3 +39,28 @@ export const uploadToS3 = async (body, key, contentType, acl = 'public-read') =>
         location: `https://${bucketName}.s3.${process.env.AWS_REGION || 'eu-north-1'}.amazonaws.com/${key}`
     };
 };
+
+import { DeleteObjectsCommand } from "@aws-sdk/client-s3";
+
+/**
+ * Delete multiple objects from S3
+ * @param {string[]} keys - Array of S3 object keys to delete
+ */
+export const deleteFromS3 = async (keys) => {
+    if (!keys || keys.length === 0) return;
+    const bucketName = process.env.S3_BUCKET_NAME;
+    if (!bucketName) return;
+
+    const command = new DeleteObjectsCommand({
+        Bucket: bucketName,
+        Delete: {
+            Objects: keys.map(k => ({ Key: k }))
+        }
+    });
+
+    try {
+        await s3Client.send(command);
+    } catch (err) {
+        console.error(`S3 Delete Error: ${err.message}`);
+    }
+};

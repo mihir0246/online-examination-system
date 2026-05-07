@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layout, Menu, Button } from 'antd';
 import { 
   LayoutDashboard, 
@@ -16,15 +16,21 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState, logout } from '@/lib/store';
+import type { AuthUser } from '@/lib/types';
 
 const { Header, Sider, Content } = Layout;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const dispatch = useDispatch();
   const user = useSelector((state: RootState) => state.auth.userDetails);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleLogout = () => {
     dispatch(logout());
@@ -33,7 +39,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const menuItems = [
     { key: '/dashboard', icon: <LayoutDashboard size={22} />, label: 'Dashboard' },
-    ...(user?.type === 'ADMIN' ? [
+    ...(mounted && user?.type === 'ADMIN' ? [
       { key: '/dashboard/trainers', icon: <Users size={22} />, label: 'Teachers' }
     ] : []),
     { key: '/dashboard/subjects', icon: <BookOpen size={22} />, label: 'Subjects' },

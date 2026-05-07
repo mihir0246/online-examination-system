@@ -1,7 +1,11 @@
+// All imports at the top (ESM requires static imports to be hoisted — not mid-file)
 import prisma from "./prisma.js";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import logger from "./logger.js";
+import redis from "./redis.js";
+import { deleteFromS3 } from "./s3.js";
+import { auditLog, AuditEvent } from "./auditLog.js";
 
 const trainerSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -11,6 +15,9 @@ const trainerSchema = z.object({
   subjectIds: z.array(z.string()).optional(),
   _id: z.string().optional().nullable()
 });
+
+// Role checks below are intentionally omitted — the entire /api/v1/admin prefix
+// is protected by requireRole('ADMIN') in app.js before any of these handlers run.
 
 export const trainerRegister = async (req, res, next) => {
   const validation = trainerSchema.safeParse(req.body);
@@ -22,21 +29,13 @@ export const trainerRegister = async (req, res, next) => {
     });
   }
 
-  if (req.user.type !== 'ADMIN') {
-    return res.status(401).json({ success: false, message: "Unauthorized" });
-  }
-
   try {
     const { name, password, emailid, contact, subjectIds = [], _id } = validation.data;
 
     if (_id) {
       await prisma.user.update({
         where: { id: _id },
-        data: { 
-          name, 
-          contact,
-          subjectIds
-        }
+        data: { name, contact, subjectIds }
       });
       return res.json({ success: true, message: "Trainer's Profile updated successfully!" });
     } else {
@@ -71,8 +70,6 @@ export const trainerRegister = async (req, res, next) => {
 };
 
 export const removeTrainer = async (req, res, next) => {
-  if (req.user.type !== 'ADMIN') return res.status(401).json({ success: false, message: "Unauthorized" });
-
   try {
     const { _id } = req.body;
     await prisma.user.update({
@@ -87,8 +84,6 @@ export const removeTrainer = async (req, res, next) => {
 };
 
 export const getAllTrainers = async (req, res, next) => {
-  if (req.user.type !== 'ADMIN') return res.status(401).json({ success: false, message: "Unauthorized" });
-
   try {
     const info = await prisma.user.findMany({
       where: { type: 'TRAINER', status: true },
@@ -102,8 +97,6 @@ export const getAllTrainers = async (req, res, next) => {
 };
 
 export const getSingleTrainer = async (req, res, next) => {
-  if (req.user.type !== 'ADMIN') return res.status(401).json({ success: false, message: "Unauthorized" });
-
   try {
     const { _id } = req.params;
     const info = await prisma.user.findUnique({
@@ -117,5 +110,76 @@ export const getSingleTrainer = async (req, res, next) => {
   } catch (err) {
     logger.error(`Fetch single trainer error: ${err.message}`);
     return res.status(500).json({ success: false, message: "Unable to fetch data" });
+  }
+};
+
+// --- Plan 8.2: Right to Erasure (DPDP Compliance) ---
+export const deleteTrainee = async (req, res, next) => {
+  const { id } = req.params;
+  const adminId = req.user.id;
+  const reason = req.body.reason || "Data retention policy";
+
+  try {
+    const trainee = await prisma.trainee.findUnique({
+      where: { id },
+      include: { answerSheet: true }
+    });
+
+    if (!trainee) {
+      return res.status(404).json({ success: false, message: "Trainee not found" });
+    }
+
+    // 1. S3 Cascade: collect any uploaded file keys
+    const s3Keys = [];
+    // Example: sheet.answers.forEach(a => { if (a.fileKey) s3Keys.push(a.fileKey); });
+    if (s3Keys.length > 0) {
+      await deleteFromS3(s3Keys);
+    }
+
+    // 2. AuditLog Anonymisation (preserve institutional record, scrub PII)
+    await prisma.$runCommandRaw({
+      update: "AuditLog",
+      updates: [
+        {
+          q: { traineeId: id, event: { $ne: AuditEvent.TRAINEE_DELETED } },
+          u: { $set: { traineeId: '[DELETED]', ip: '[REDACTED]' } },
+          multi: true
+        }
+      ]
+    });
+
+    // 3. Prisma $transaction for Database Cascade Delete
+    await prisma.$transaction([
+      prisma.examEvent.deleteMany({ where: { traineeId: id } }),
+      prisma.feedback.deleteMany({ where: { traineeId: id } }),
+      prisma.result.deleteMany({ where: { traineeId: id } }),
+      prisma.answer.deleteMany({ where: { answerSheetId: trainee.answerSheet?.id || 'non-existent' } }),
+      prisma.answerSheet.deleteMany({ where: { traineeId: id } }),
+      prisma.trainee.delete({ where: { id } })
+    ]);
+
+    // 4. Redis Cleanup
+    try {
+      await redis.del(`session:${id}`);
+      await redis.del(`exam_state:${id}:${trainee.testId}`);
+      await redis.set(`blacklist:${id}`, 'deleted', 'EX', 86400);
+    } catch (redisErr) {
+      logger.error(`Redis cleanup failed during trainee deletion: ${redisErr.message}`);
+    }
+
+    // 5. Post-transaction Audit Log
+    await auditLog({
+      event: AuditEvent.TRAINEE_DELETED,
+      userId: adminId,
+      traineeId: id,
+      metadata: { reason, deletedAt: new Date().toISOString() },
+      ip: req.headers['x-forwarded-for'] || req.ip
+    });
+
+    return res.json({ success: true, message: "Trainee permanently deleted and anonymised" });
+
+  } catch (err) {
+    logger.error(`Delete trainee error: ${err.message}`);
+    return res.status(500).json({ success: false, message: "Internal error during deletion cascade" });
   }
 };

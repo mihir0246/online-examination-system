@@ -72,7 +72,7 @@ export const useTestDetails = (testId: string) => {
       queryClient.invalidateQueries({ queryKey: ['test', testId] });
       message.success('Test started successfully!');
     },
-    onError: (err: any) => message.error(err.message || 'Failed to start test'),
+    onError: (err: any) => message.error(err.response?.data?.message || err.message || 'Failed to start test'),
   });
 
   const endTestMutation = useMutation({
@@ -84,7 +84,7 @@ export const useTestDetails = (testId: string) => {
       queryClient.invalidateQueries({ queryKey: ['test', testId] });
       message.success('Test ended successfully!');
     },
-    onError: (err: any) => message.error(err.message || 'Failed to end test'),
+    onError: (err: any) => message.error(err.response?.data?.message || err.message || 'Failed to end test'),
   });
 
   return {

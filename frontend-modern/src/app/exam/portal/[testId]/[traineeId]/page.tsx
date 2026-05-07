@@ -32,7 +32,8 @@ import {
   Circle,
   HelpCircle,
   ShieldAlert,
-  Clock
+  Clock,
+  LayoutGrid
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useExamSession } from '@/hooks/useExamSession';
@@ -85,6 +86,7 @@ export default function ExamPortalPage() {
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [visitedIndices, setVisitedIndices] = useState<Set<number>>(new Set([0]));
+  const [mobilePaletteOpen, setMobilePaletteOpen] = useState(false);
 
   useEffect(() => {
     if (!testNotStarted && !isLoading && !isExamOver) {
@@ -92,6 +94,26 @@ export default function ExamPortalPage() {
     }
     return () => stopWebcam();
   }, [testNotStarted, isLoading, isExamOver]);
+
+  const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
+  const [showSavedIndicator, setShowSavedIndicator] = useState(false);
+
+  useEffect(() => {
+    if (!testId || !traineeId || isLoading || isExamOver) return;
+    
+    // Auto-save the current question's state every 60 seconds
+    const autoSaveInterval = setInterval(() => {
+      const currentQ = questions[activeQuestionIndex];
+      if (currentQ) {
+        saveAnswer(currentQ.id, selectedOption, isBookmarked).catch(() => {});
+        setLastSavedTime(new Date());
+        setShowSavedIndicator(true);
+        setTimeout(() => setShowSavedIndicator(false), 3000);
+      }
+    }, 60000);
+
+    return () => clearInterval(autoSaveInterval);
+  }, [activeQuestionIndex, selectedOption, isBookmarked, isLoading, isExamOver, testId, traineeId]);
 
   const currentQuestion = questions[activeQuestionIndex];
   // Read from localAnswers (optimistic) — always up-to-date without re-fetching
@@ -111,12 +133,20 @@ export default function ExamPortalPage() {
 
   const handleSaveAndNext = async () => {
     if (!currentQuestion) return;
-    // Navigate immediately for instant UX, then save in background
-    const nextIndex = activeQuestionIndex < questions.length - 1 ? activeQuestionIndex + 1 : null;
-    if (nextIndex !== null) setActiveQuestionIndex(nextIndex);
-    else message.success('Last question reached. You can review your answers or click End Test.');
-    // Save fires after navigation (fire-and-forget for speed, errors surfaced via onError)
+    // Save current state before navigating
     saveAnswer(currentQuestion.id, selectedOption, isBookmarked).catch(() => {});
+    setLastSavedTime(new Date());
+    setShowSavedIndicator(true);
+    setTimeout(() => setShowSavedIndicator(false), 3000);
+
+    // Navigate immediately for instant UX
+    const nextIndex = activeQuestionIndex < questions.length - 1 ? activeQuestionIndex + 1 : null;
+    if (nextIndex !== null) {
+      setActiveQuestionIndex(nextIndex);
+      setMobilePaletteOpen(false); // auto-close palette on mobile when navigating
+    } else {
+      message.success('Last question reached. You can review your answers or click End Test.');
+    }
   };
 
   const handleToggleBookmark = async () => {
@@ -200,31 +230,51 @@ export default function ExamPortalPage() {
       ) : (
         <>
           {/* Header */}
-          <header className="h-16 glass border-b border-white/10 px-6 flex items-center justify-between sticky top-0 z-50">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold">E</div>
-          <Title level={4} className="mb-0 hidden sm:block">Exam Portal</Title>
-        </div>
+          <header className="h-auto min-h-[64px] py-2 glass border-b border-white/10 px-4 flex flex-wrap items-center justify-between sticky top-0 z-40 gap-y-2">
+            <div className="flex items-center gap-2 sm:gap-3 w-auto">
+              <Button
+                className="xl:hidden glass border-white/20 rounded-xl flex items-center justify-center w-10 h-10 p-0"
+                onClick={() => setMobilePaletteOpen(true)}
+              >
+                <LayoutGrid size={20} className="text-indigo-600" />
+              </Button>
+              <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold">E</div>
+              <Title level={4} className="mb-0 hidden sm:block text-sm sm:text-base">Exam Portal</Title>
+            </div>
 
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-3 bg-white/50 dark:bg-slate-900/50 px-4 py-2 rounded-xl border border-white/20">
-            <Timer className={`w-5 h-5 ${timeLeft && timeLeft < 300 ? 'text-red-500 animate-pulse' : 'text-indigo-600'}`} />
-            <Text className="font-mono text-lg font-bold">{timeLeft ? formatTime(timeLeft) : '--:--'}</Text>
-          </div>
-          <Button 
-            danger 
-            icon={<LogOut size={16} />} 
-            onClick={() => modal.confirm({
-              title: 'End Examination?',
-              content: 'Are you sure you want to submit your answers and end the test?',
-              onOk: () => submitExam()
-            })}
-            className="rounded-xl font-bold border-red-500/20 bg-red-500/10"
-          >
-            End Test
-          </Button>
-        </div>
-      </header>
+            {/* Auto-save indicator */}
+            <AnimatePresence>
+              {showSavedIndicator && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="absolute left-1/2 -translate-x-1/2 top-full mt-2 px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full shadow-md flex items-center gap-1 z-50 border border-green-200"
+                >
+                  <CheckCircle2 size={12} /> Saved
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div className="flex items-center gap-2 sm:gap-6 justify-end">
+              <div className="flex items-center gap-1.5 sm:gap-3 bg-white/50 dark:bg-slate-900/50 px-2 sm:px-4 py-1.5 sm:py-2 rounded-xl border border-white/20">
+                <Timer className={`w-4 h-4 sm:w-5 sm:h-5 ${timeLeft && timeLeft < 300 ? 'text-red-500 animate-pulse' : 'text-indigo-600'}`} />
+                <Text className="font-mono text-sm sm:text-lg font-bold">{timeLeft ? formatTime(timeLeft) : '--:--'}</Text>
+              </div>
+              <Button 
+                danger 
+                icon={<LogOut size={14} className="sm:w-4 sm:h-4" />} 
+                onClick={() => modal.confirm({
+                  title: 'End Examination?',
+                  content: 'Are you sure you want to submit your answers and end the test?',
+                  onOk: () => submitExam()
+                })}
+                className="rounded-xl font-bold border-red-500/20 bg-red-500/10 text-xs sm:text-sm h-8 sm:h-10 px-2 sm:px-4"
+              >
+                <span className="hidden sm:inline">End Test</span>
+              </Button>
+            </div>
+          </header>
 
       <main className="flex-1 overflow-hidden flex">
         {/* Left Side: Question Viewer */}
@@ -270,13 +320,13 @@ export default function ExamPortalPage() {
                   {currentQuestion?.options.map((opt: any, idx: number) => (
                     <label 
                       key={idx}
-                      className={`flex items-center p-4 rounded-2xl border-2 transition-all cursor-pointer ${
+                      className={`flex items-center min-h-[44px] p-4 rounded-2xl border-2 transition-all cursor-pointer ${
                         selectedOption === opt.optbody 
                         ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/20' 
                         : 'border-slate-100 dark:border-white/5 bg-white dark:bg-slate-900 hover:border-indigo-200'
                       }`}
                     >
-                      <Radio value={opt.optbody} className="mr-4" />
+                      <Radio value={opt.optbody} className="mr-4 transform scale-110" />
                       <div className="flex-1 flex items-center gap-4">
                         {opt.optimg && <img src={opt.optimg} alt="Option" className="w-12 h-12 rounded-lg object-cover" />}
                         <Text className="text-base font-medium">{opt.optbody}</Text>
@@ -289,9 +339,21 @@ export default function ExamPortalPage() {
           </motion.div>
         </div>
 
-        {/* Right Side: Question Palette (Desktop) */}
-        <aside className="w-80 glass border-l border-white/10 p-6 hidden xl:block overflow-y-auto">
+        {/* Mobile Backdrop */}
+        {mobilePaletteOpen && (
+          <div 
+            className="fixed inset-0 bg-black/60 z-40 xl:hidden backdrop-blur-sm"
+            onClick={() => setMobilePaletteOpen(false)}
+          />
+        )}
+
+        {/* Right Side: Question Palette (Responsive Drawer) */}
+        <aside className={`fixed inset-y-0 right-0 z-50 w-80 bg-slate-50 dark:bg-slate-950 border-l border-white/10 p-6 overflow-y-auto transition-transform duration-300 xl:static xl:translate-x-0 ${mobilePaletteOpen ? 'translate-x-0 shadow-2xl' : 'translate-x-full shadow-none'}`}>
           <div className="space-y-8">
+            <div className="flex xl:hidden justify-between items-center mb-4">
+              <Title level={5} className="mb-0">Question Palette</Title>
+              <Button type="text" onClick={() => setMobilePaletteOpen(false)}>Close</Button>
+            </div>
             {/* Proctoring View */}
             <div className="relative rounded-2xl overflow-hidden bg-slate-900 border-2 border-indigo-500/20 shadow-lg aspect-video mb-6 group">
               <video 
@@ -319,7 +381,7 @@ export default function ExamPortalPage() {
             </div>
 
             <div>
-              <Title level={5} className="mb-4">Question Palette</Title>
+              <Title level={5} className="mb-4 hidden xl:block">Question Palette</Title>
               <div className="grid grid-cols-5 gap-2">
                 {questions.map((q: any, idx: number) => {
                   // Use localAnswers for instant palette updates (no server round-trip needed)
@@ -344,8 +406,11 @@ export default function ExamPortalPage() {
                   return (
                     <button
                       key={idx}
-                      onClick={() => setActiveQuestionIndex(idx)}
-                      className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold text-sm transition-all hover:scale-105 ${bgColor} ${textColor}`}
+                      onClick={() => {
+                        setActiveQuestionIndex(idx);
+                        setMobilePaletteOpen(false);
+                      }}
+                      className={`w-10 h-10 sm:w-11 sm:h-11 rounded-lg flex items-center justify-center font-bold text-sm transition-all hover:scale-105 ${bgColor} ${textColor}`}
                     >
                       {idx + 1}
                     </button>
@@ -373,24 +438,24 @@ export default function ExamPortalPage() {
       </main>
 
       {/* Footer Navigation */}
-      <footer className="h-20 glass border-t border-white/10 px-6 flex items-center justify-between">
-        <Space>
+      <footer className="h-16 sm:h-20 glass border-t border-white/10 px-4 sm:px-6 flex items-center justify-between">
+        <Space size="small">
           <Button 
             size="large" 
             icon={<ChevronLeft size={18} />} 
             disabled={activeQuestionIndex === 0}
             onClick={() => setActiveQuestionIndex(activeQuestionIndex - 1)}
-            className="rounded-xl glass border-none"
+            className="rounded-xl glass border-none flex items-center h-10 sm:h-12 w-10 sm:w-auto p-0 sm:px-4 justify-center"
           >
-            Previous
+            <span className="hidden sm:inline">Previous</span>
           </Button>
           <Button 
             size="large" 
             icon={<Flag size={18} className={isBookmarked ? 'text-amber-500' : ''} />} 
             onClick={handleToggleBookmark}
-            className={`rounded-xl glass border-none ${isBookmarked ? 'bg-amber-50 text-amber-600' : ''}`}
+            className={`rounded-xl glass border-none flex items-center h-10 sm:h-12 w-10 sm:w-auto p-0 sm:px-4 justify-center ${isBookmarked ? 'bg-amber-50 text-amber-600' : ''}`}
           >
-            {isBookmarked ? 'Bookmarked' : 'Bookmark'}
+            <span className="hidden sm:inline">{isBookmarked ? 'Bookmarked' : 'Bookmark'}</span>
           </Button>
         </Space>
 
@@ -398,10 +463,11 @@ export default function ExamPortalPage() {
           type="primary" 
           size="large" 
           onClick={handleSaveAndNext}
-          className="h-12 px-10 rounded-xl font-bold bg-indigo-600 flex items-center justify-center gap-2"
+          className="h-10 sm:h-12 px-5 sm:px-10 rounded-xl font-bold bg-indigo-600 flex items-center justify-center gap-1 sm:gap-2 text-sm sm:text-base"
         >
-          {activeQuestionIndex === questions.length - 1 ? 'Save & Finish' : 'Save & Next'}
-          <ChevronRight size={18} />
+          <span className="hidden sm:inline">{activeQuestionIndex === questions.length - 1 ? 'Save & Finish' : 'Save & Next'}</span>
+          <span className="sm:hidden">{activeQuestionIndex === questions.length - 1 ? 'Finish' : 'Next'}</span>
+          <ChevronRight size={16} className="sm:w-[18px] sm:h-[18px]" />
         </Button>
       </footer>
 

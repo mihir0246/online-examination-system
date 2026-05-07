@@ -8,13 +8,22 @@ const redisConfig = {
   password: process.env.REDIS_PASSWORD,
   maxRetriesPerRequest: 1,
   enableOfflineQueue: false,
+  lazyConnect: true,
   retryStrategy: (times) => {
-    const delay = Math.min(times * 50, 2000);
-    return delay;
+    if (times > 10) {
+      logger.warn('⚠️ Redis: max retries reached, giving up reconnection');
+      return null; // stop retrying
+    }
+    return Math.min(times * 200, 5000);
   },
 };
 
 const redis = new Redis(redisConfig);
+
+// Attempt connection but don't crash if Redis is unavailable
+redis.connect().catch((err) => {
+  logger.warn(`⚠️ Redis unavailable at startup: ${err.message} — running without Redis`);
+});
 
 redis.on('connect', () => {
   logger.info('🚀 Redis connected successfully');
@@ -48,13 +57,21 @@ export const blacklistToken = async (token, ttl) => {
 
 /**
  * Check if a token is blacklisted.
- * Returns false (fail-open) when Redis is down — user can proceed.
+ * SECURITY NOTE: When Redis circuit is OPEN, we cannot verify.
+ * We fail-open (return false) to avoid locking all users out during outages.
+ * Pair this with short JWT expiry (15min + silent refresh) to bound blast radius.
  */
 export const isTokenBlacklisted = async (token) => {
-  const result = await redisBreaker.execute(async () => {
-    return redis.get(`blacklist:${token}`);
-  });
-  return result === 'true';
+  if (redisBreaker.getState() === 'OPEN') {
+    logger.warn('[Security] Redis circuit OPEN — blacklist check skipped. Token accepted (fail-open).');
+    return false;
+  }
+  try {
+    const result = await redisBreaker.execute(async () => redis.get(`blacklist:${token}`));
+    return result === 'true';
+  } catch {
+    return false;
+  }
 };
 
 /**

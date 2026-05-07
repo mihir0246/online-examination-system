@@ -13,6 +13,8 @@ export interface Exam {
   totalQuestions: number;
   passingMarks: number;
   status: boolean;
+  testbegins: boolean;
+  testconducted: boolean;
   createdAt: string;
   subjects?: { id: string; topic: string }[];
 }
@@ -55,6 +57,13 @@ export const useExams = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['exams'] });
       message.success('Test deleted successfully');
+    },
+    onError: (error: any) => {
+      if (error.response?.status === 409) {
+        message.error('Cannot delete a live test. Please end the exam first, then delete it.');
+      } else {
+        message.error(error.response?.data?.message || 'Failed to delete test');
+      }
     },
   });
 

@@ -4,6 +4,8 @@ import React from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import { useSelector } from 'react-redux';
+import { RootState } from '@/lib/store';
 import { 
   Typography, 
   Card, 
@@ -19,7 +21,8 @@ import {
   Table, 
   Tooltip,
   InputNumber,
-  Rate
+  Rate,
+  Input
 } from 'antd';
 import { 
   ArrowLeft, 
@@ -41,7 +44,8 @@ import {
   BarChart2,
   Ban,
   Calendar,
-  Mail
+  Mail,
+  Trash2
 } from 'lucide-react';
 import { useTestDetails } from '@/hooks/useTestDetails';
 import Link from 'next/link';
@@ -90,11 +94,43 @@ export default function TestDetailsPage() {
     isStopping
   } = useTestDetails(testId);
 
+  const user = useSelector((state: RootState) => state.auth.userDetails);
+
   const [selectedCandidateId, setSelectedCandidateId] = React.useState<string | null>(null);
   const { details: candidateDetails, isLoading: isDetailsLoading, refetch: refetchCandidate } = useCandidateDetails(selectedCandidateId);
 
   const [evaluatingAnswerId, setEvaluatingAnswerId] = React.useState<string | null>(null);
   const [evaluationScore, setEvaluationScore] = React.useState<number>(0);
+
+  const [deleteModalVisible, setDeleteModalVisible] = React.useState(false);
+  const [candidateToDelete, setCandidateToDelete] = React.useState<any>(null);
+  const [deleteConfirmationName, setDeleteConfirmationName] = React.useState('');
+  const [isDeleting, setIsDeleting] = React.useState(false);
+
+  const handleDeleteTrainee = async () => {
+    if (!candidateToDelete || deleteConfirmationName !== candidateToDelete.name) {
+      return message.error('Please type the exact name to confirm deletion.');
+    }
+    
+    setIsDeleting(true);
+    try {
+      const { data } = await apiClient.delete(`/api/v1/admin/trainee/${candidateToDelete.id}`);
+      if (data.success) {
+        message.success('Trainee deleted successfully.');
+        setDeleteModalVisible(false);
+        setCandidateToDelete(null);
+        setDeleteConfirmationName('');
+        // Update local state without re-fetching ghost entries
+        queryClient.setQueryData(['test-candidates', testId], (oldData: any) => {
+          return oldData?.filter((c: any) => c.id !== candidateToDelete.id) || [];
+        });
+      }
+    } catch (error: any) {
+      message.error(error.response?.data?.message || 'Failed to delete trainee');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const handleEvaluate = async (answerId: string, testId: string, maxScore: number) => {
     try {
@@ -235,6 +271,20 @@ export default function TestDetailsPage() {
           >
             Email Result
           </Button>
+          {user?.type === 'ADMIN' && (
+            <Button 
+              size="small"
+              danger
+              icon={<Trash2 size={12} />}
+              onClick={() => {
+                setCandidateToDelete(record);
+                setDeleteConfirmationName('');
+                setDeleteModalVisible(true);
+              }}
+            >
+              Delete Student
+            </Button>
+          )}
         </Space>
       ),
     },
@@ -499,7 +549,7 @@ export default function TestDetailsPage() {
                       className="bg-blue-600 border-blue-600"
                       size="small"
                       icon={<Play size={14} className="mr-1" />}
-                      onClick={() => beginTest()}
+                      onClick={async () => { try { await beginTest(); } catch {} }}
                       loading={isStarting}
                     >
                       Start Test
@@ -511,7 +561,7 @@ export default function TestDetailsPage() {
                       type="primary"
                       size="small"
                       icon={<Square size={14} className="mr-1" />}
-                      onClick={() => endTest()}
+                      onClick={async () => { try { await endTest(); } catch {} }}
                       loading={isEnding}
                     >
                       End Test
@@ -643,6 +693,53 @@ export default function TestDetailsPage() {
         ) : (
           <Empty description="No details found" />
         )}
+      </Modal>
+
+      {/* Delete Trainee Confirmation Modal */}
+      <Modal
+        title={
+          <Title level={4} className="text-red-600 mb-0 flex items-center gap-2">
+            <Trash2 size={20} /> Permanent Erasure Warning
+          </Title>
+        }
+        open={deleteModalVisible}
+        onCancel={() => {
+          setDeleteModalVisible(false);
+          setCandidateToDelete(null);
+          setDeleteConfirmationName('');
+        }}
+        onOk={handleDeleteTrainee}
+        okText="Permanently Delete Student"
+        okButtonProps={{ 
+          danger: true, 
+          disabled: deleteConfirmationName !== candidateToDelete?.name,
+          loading: isDeleting
+        }}
+      >
+        <div className="space-y-4 py-4">
+          <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
+            <strong>Warning:</strong> You are about to permanently delete <strong>{candidateToDelete?.name}</strong>.
+            This action is irreversible and will immediately wipe:
+            <ul className="list-disc ml-5 mt-2 text-sm">
+              <li>Profile data and login credentials</li>
+              <li>S3 uploaded files and attachments</li>
+              <li>Exam answers and results</li>
+              <li>Active Redis sessions (locking the student out immediately)</li>
+            </ul>
+          </div>
+          
+          <div>
+            <p className="mb-2 text-slate-600">
+              Please type <strong>{candidateToDelete?.name}</strong> to confirm.
+            </p>
+            <Input 
+              value={deleteConfirmationName}
+              onChange={(e) => setDeleteConfirmationName(e.target.value)}
+              placeholder={`Type ${candidateToDelete?.name} to confirm`}
+              onPressEnter={handleDeleteTrainee}
+            />
+          </div>
+        </div>
       </Modal>
     </DashboardLayout>
   );
