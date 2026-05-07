@@ -66,6 +66,9 @@ const PORT = process.env.PORT || 5000;
 const app = express();
 const httpServer = createServer(app);
 
+// Trust the first proxy hop (AWS ALB / Amplify)
+app.set('trust proxy', 1);
+
 // Sentry initialization handled by instrument.js
 
 // Initialize Socket.io
@@ -172,7 +175,7 @@ app.use('/api/v1/upload', passport.authenticate('user-token', { session: false }
 app.use('/api/v1/trainer', passport.authenticate('user-token', { session: false }), stopRegistration);
 app.use('/api/v1/trainee', trainee);
 app.use('/api/v1/final', doubleCsrfProtection, passport.authenticate('user-token', { session: false }), requireRole('ADMIN', 'TRAINER'), results);
-app.use('/api/v1/login', loginLimiter, doubleCsrfProtection, login);
+app.use('/api/v1/login', loginLimiter, login);
 app.use('/api/v1/audit', doubleCsrfProtection, passport.authenticate('user-token', { session: false }), requireRole('ADMIN', 'TRAINER'), audit);
 
 app.get('/api/v1/time', (req, res) => {
