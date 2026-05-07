@@ -69,3 +69,8 @@ backend-deploy.zip
 mongodb_data/
 temp_mongo/
 
+
+# Load test results
+load-tests/results.json
+load-tests/*.json
+
