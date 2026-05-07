@@ -4,6 +4,11 @@
  * Fails fast at startup if required values are missing.
  */
 
+// Fallback DATABASE_URL to MONGODB_URI if needed (e.g. on AWS EB)
+if (!process.env.DATABASE_URL && process.env.MONGODB_URI) {
+  process.env.DATABASE_URL = process.env.MONGODB_URI;
+}
+
 function require_env(key, fallback) {
   const val = process.env[key] ?? fallback;
   if (val === undefined) throw new Error(`Missing required env var: ${key}`);
