@@ -1,10 +1,22 @@
 import type { NextConfig } from "next";
-import path from "path";
+
+const BACKEND_URL = process.env.BACKEND_URL || 'http://online-exam-backend-env.eba-apkr5fkw.eu-north-1.elasticbeanstalk.com';
 
 const nextConfig: NextConfig = {
   // Allow images from any HTTPS source (for future asset loading)
   images: {
-    remotePatterns: [{ protocol: 'https', hostname: '**' }],
+    remotePatterns: [{ protocol: 'https', hostname: '**' }, { protocol: 'http', hostname: '**' }],
+  },
+  // Proxy all /api/** requests server-side to the EB backend.
+  // This eliminates Mixed Content errors — the browser only ever talks
+  // to the Amplify HTTPS domain; Next.js forwards the call to EB internally.
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${BACKEND_URL}/api/:path*`,
+      },
+    ];
   },
 };
 

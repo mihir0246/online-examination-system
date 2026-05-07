@@ -1,6 +1,10 @@
 import axios from 'axios';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000';
+// In production (Amplify), leave BASE_URL empty so requests go to the same
+// HTTPS origin (e.g. https://main.d2zv26r39f0427.amplifyapp.com/api/...).
+// Next.js rewrites will proxy them server-side to the EB backend — no Mixed Content.
+// In local dev, fall back to the local backend.
+const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
