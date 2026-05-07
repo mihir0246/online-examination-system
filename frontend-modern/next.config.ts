@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://online-exam-backend-new-env.eba-rm7tnms6.eu-north-1.elasticbeanstalk.com';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://online-exam-backend-prod-env.eba-mbshwgud.eu-north-1.elasticbeanstalk.com';
 
 const nextConfig: NextConfig = {
   // Allow images from any HTTPS source (for future asset loading)
