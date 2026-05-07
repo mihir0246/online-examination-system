@@ -59,6 +59,7 @@ const answerUpdateLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
   ...(redisClient.status === 'ready' && { store: createRedisStore() }),
+  validate: { keyGeneratorIpFallback: false },
   keyGenerator: (req) => req.user?.id || req.ip,
   handler: async (req, res, next, options) => {
     await auditLog({ 
