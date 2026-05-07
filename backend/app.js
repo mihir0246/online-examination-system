@@ -112,15 +112,10 @@ const loginLimiter = rateLimit({
   max: 20,
   skipSuccessfulRequests: true,
   ...(redisClient.status === 'ready' && { store: createRedisStore() }),
-  validate: { keyGeneratorIpFallback: false },
-  keyGenerator: (req) => {
-    const forwarded = req.headers['x-forwarded-for'];
-    return (forwarded ? forwarded.split(',')[0].trim() : req.ip);
-  },
   handler: async (req, res, next, options) => {
     await auditLog({ 
       event: AuditEvent.RATE_LIMIT_HIT, 
-      ip: req.headers['x-forwarded-for'] || req.ip,
+      ip: req.ip,
       metadata: { route: req.path }
     });
     res.status(429).json({ success: false, message: options.message });
@@ -144,9 +139,7 @@ const {
   getTokenFromRequest: (req) => req.headers["x-csrf-token"],
   getSessionIdentifier: (req) => {
     if (req.user?.id) return req.user.id;
-    // Behind ALB, real IP is in x-forwarded-for
-    const forwarded = req.headers['x-forwarded-for'];
-    return (forwarded ? forwarded.split(',')[0].trim() : req.ip) || "anonymous";
+    return req.ip || "anonymous";
   },
 });
 
@@ -175,7 +168,7 @@ app.use('/api/v1/upload', passport.authenticate('user-token', { session: false }
 app.use('/api/v1/trainer', passport.authenticate('user-token', { session: false }), stopRegistration);
 app.use('/api/v1/trainee', trainee);
 app.use('/api/v1/final', doubleCsrfProtection, passport.authenticate('user-token', { session: false }), requireRole('ADMIN', 'TRAINER'), results);
-app.use('/api/v1/login', loginLimiter, login);
+app.use('/api/v1/login', loginLimiter, doubleCsrfProtection, login);
 app.use('/api/v1/audit', doubleCsrfProtection, passport.authenticate('user-token', { session: false }), requireRole('ADMIN', 'TRAINER'), audit);
 
 app.get('/api/v1/time', (req, res) => {
