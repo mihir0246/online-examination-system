@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Steps as AntSteps, Button as AntButton, Typography as AntTypography, Card as AntCard, Form as AntForm, Input as AntInput, InputNumber as AntInputNumber, Select as AntSelect, Transfer as AntTransfer, Table as AntTable, Tag as AntTag, Space as AntSpace, Divider as AntDivider, Modal } from 'antd';
 import { useCreateTest, TestFormData } from '@/hooks/useCreateTest';
@@ -34,6 +35,7 @@ export default function CreateTestPage() {
   
   const { subjects } = useSubjects();
   const [form] = AntForm.useForm();
+  const router = useRouter();
 
   const handleStep1Submit = async (values: any) => {
     updateFormData(values);

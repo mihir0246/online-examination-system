@@ -16,6 +16,7 @@ export interface Question {
   subjectId: string;
   difficulty: number;
   explanation: string;
+  type?: string;
   subject?: { topic: string };
   options: QuestionOption[];
 }

@@ -257,13 +257,11 @@ export default function QuestionsPage() {
                style={{ width: 200 }}
                onChange={(val) => setSelectedSubject(val)}
                options={subjects?.map(s => ({ label: s.topic, value: s.id })) || []}
-               suppressHydrationWarning
              />
              <Input 
               placeholder="Search questions..." 
               className="max-w-xs"
               onChange={e => setSearchText(e.target.value)}
-              suppressHydrationWarning
              />
            </Space>
         </div>
