@@ -44,15 +44,10 @@ const traineeEnterLimiter = rateLimit({
   max: 5,
   skipSuccessfulRequests: true,
   ...(redisClient.status === 'ready' && { store: createRedisStore() }),
-  validate: { keyGeneratorIpFallback: false },
-  keyGenerator: (req) => {
-    const forwarded = req.headers['x-forwarded-for'];
-    return (forwarded ? forwarded.split(',')[0].trim() : req.ip);
-  },
   handler: async (req, res, next, options) => {
     await auditLog({ 
       event: AuditEvent.RATE_LIMIT_HIT, 
-      ip: req.headers['x-forwarded-for'] || req.ip,
+      ip: req.ip,
       metadata: { route: req.path }
     });
     res.status(429).json({ success: false, message: options.message });
@@ -64,12 +59,11 @@ const answerUpdateLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
   ...(redisClient.status === 'ready' && { store: createRedisStore() }),
-  validate: { keyGeneratorIpFallback: false },
   keyGenerator: (req) => req.user?.id || req.ip,
   handler: async (req, res, next, options) => {
     await auditLog({ 
       event: AuditEvent.RATE_LIMIT_HIT, 
-      ip: req.headers['x-forwarded-for'] || req.ip,
+      ip: req.ip,
       metadata: { route: req.path }
     });
     res.status(429).json({ success: false, message: options.message });
@@ -82,7 +76,7 @@ const requireAuth = (req, res, next) => {
     if (err || !user) {
       await auditLog({
         event: AuditEvent.AUTH_FAILURE,
-        ip: req.headers['x-forwarded-for'] || req.ip,
+        ip: req.ip,
         metadata: { route: req.path, reason: err?.message || info?.message || 'Unauthorized' }
       });
       return res.status(401).json({ success: false, message: "Unauthorized" });
