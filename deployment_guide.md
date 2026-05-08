@@ -13,7 +13,7 @@ The backend is a Node.js/Express app deployed as a **Render Web Service**.
 1. Go to [render.com](https://render.com) → **New → Web Service**
 2. Connect your GitHub repository
 3. Set the **Root Directory** to `backend`
-4. Set **Build Command**: `npm install && npx prisma generate`
+4. Set **Build Command**: `npm install && npx prisma db push && npx prisma generate`
 5. Set **Start Command**: `node app.js`
 6. Set **Environment**: `Node`
 
@@ -23,7 +23,7 @@ In the Render dashboard → your service → **Environment**, add:
 
 | Key | Value | Description |
 | :--- | :--- | :--- |
-| `PORT` | `10000` | Render's default port (auto-set by Render) |
+| `PORT` | *(auto-set)* | Automatically set by Render — do not configure manually |
 | `DATABASE_URL` | `mongodb+srv://...` | MongoDB Atlas connection string |
 | `JWT_SECRET` | `your_secure_secret` | Long random string for JWT signing |
 | `CSRF_SECRET` | `your_csrf_secret` | Long random string for CSRF tokens |
@@ -108,9 +108,16 @@ S3 is used for question images and Excel report uploads.
 2. **Bucket name**: e.g., `online-exam-storage-mihir`
 3. **Region**: `eu-north-1`
 4. **Object Ownership**: ACLs enabled
-5. **Block Public Access**: Uncheck "Block all public access" → acknowledge
+5. **Block Public Access**: *See Security Policy below before changing this.*
 
-### 2. Bucket Policy (Public Read)
+### 2. Bucket Security Policy
+
+> **Security Warning (PII):** If you are storing Excel result reports containing student names and grades, do **not** make the entire bucket public.
+
+**Option A: Public Assets Only (Images)**
+If the bucket only stores question images and public resources:
+1. Uncheck "Block all public access" and acknowledge.
+2. Go to the **Permissions** tab → **Bucket policy** and paste:
 
 ```json
 {
@@ -126,6 +133,9 @@ S3 is used for question images and Excel report uploads.
   ]
 }
 ```
+
+**Option B: Private Content (Reports + Images)**
+If storing sensitive Excel reports, keep **Block all public access** enabled. You must configure the backend `s3.js` to generate **AWS S3 Presigned URLs** for short-lived, authenticated access to reports and images.
 
 ---
 
