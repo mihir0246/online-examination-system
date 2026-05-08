@@ -2,11 +2,7 @@ import Redis from 'ioredis';
 import logger from './logger.js';
 import { redisBreaker } from './circuitBreaker.js';
 
-const redisConfig = {
-  host: process.env.REDIS_HOST || '127.0.0.1',
-  port: process.env.REDIS_PORT || 6379,
-  password: process.env.REDIS_PASSWORD,
-  tls: process.env.REDIS_HOST?.includes('.upstash.io') ? {} : undefined,
+const redisOptions = {
   maxRetriesPerRequest: 1,
   enableOfflineQueue: false,
   lazyConnect: true,
@@ -19,7 +15,16 @@ const redisConfig = {
   },
 };
 
-const redis = new Redis(redisConfig);
+// Use REDIS_URL if provided (preferred for Upstash rediss:// URLs), otherwise fallback to host/port
+const redis = process.env.REDIS_URL 
+  ? new Redis(process.env.REDIS_URL, redisOptions)
+  : new Redis({
+      host: process.env.REDIS_HOST || '127.0.0.1',
+      port: process.env.REDIS_PORT || 6379,
+      password: process.env.REDIS_PASSWORD,
+      tls: process.env.REDIS_HOST?.includes('.upstash.io') ? {} : undefined,
+      ...redisOptions
+    });
 
 // Attempt connection but don't crash if Redis is unavailable
 redis.connect().catch((err) => {
