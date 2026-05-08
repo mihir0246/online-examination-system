@@ -47,7 +47,8 @@ const headers = { 'Content-Type': 'application/json' };
 
 // ── Virtual User scenario ──────────────────────────────────────────────────
 export default function () {
-  const vuId = `loadtest_vu_${__VU}_${__ITER}`;
+  const runId = Math.floor(Math.random() * 1000000);
+  const vuId = `lt_${runId}_${__VU}_${__ITER}`;
 
   // 1. Register as a trainee
   const registerRes = http.post(
@@ -55,7 +56,7 @@ export default function () {
     JSON.stringify({
       name: `Test User ${vuId}`,
       emailid: `${vuId}@loadtest.example.com`,
-      contact: `9${String(__VU).padStart(4, '0')}${String(__ITER).padStart(5, '0')}`,
+      contact: `9${String(Math.floor(Math.random() * 1000000000)).padStart(9, '0')}`,
       organisation: 'Load Test Corp',
       location: 'Test City',
       testid: TEST_ID,
