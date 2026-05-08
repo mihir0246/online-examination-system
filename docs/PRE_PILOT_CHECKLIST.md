@@ -10,19 +10,19 @@
 ## Section 1: Infrastructure Readiness (T-24 hours)
 
 ### Backend
-- [ ] 🔴 Health check returns `{"status":"UP"}`: `GET /health`
-- [ ] 🔴 MongoDB Atlas connection verified (Metrics > Connections > Active)
-- [ ] 🔴 Redis connected and responding (`redis-cli ping → PONG`)
-- [ ] 🔴 `SENTRY_DSN` set in production `.env` — verify Sentry dashboard shows test event
-- [ ] `NODE_ENV=production` confirmed in server environment
+- [ ] 🔴 Health check returns `{"status":"UP"}`: `GET /health` on Render URL
+- [ ] 🔴 MongoDB Atlas connection verified (Atlas > Metrics > Connections > Active)
+- [ ] 🔴 Redis connected and responding — Render logs show `🚀 Redis connected successfully`
+- [ ] 🔴 `SENTRY_DSN` set in Render Environment Variables — verify Sentry dashboard shows test event
+- [ ] `NODE_ENV=production` confirmed in Render Environment Variables
 - [ ] Server clock synchronized: `GET /api/v1/time` returns current UTC time
 - [ ] Pre-warm endpoint called 15 minutes before exam start
 - [ ] MongoDB Atlas auto-backup confirmed enabled (Atlas > Backup)
 
 ### Frontend
-- [ ] 🔴 Frontend deployed and accessible at production URL
-- [ ] 🔴 `NEXT_PUBLIC_SENTRY_DSN` set — verify test error appears in Sentry
-- [ ] `NEXT_PUBLIC_API_URL` points to production backend (not localhost)
+- [ ] 🔴 Frontend deployed and accessible at Amplify production URL
+- [ ] 🔴 `NEXT_PUBLIC_SENTRY_DSN` set in Amplify env vars — verify test error appears in Sentry
+- [ ] `NEXT_PUBLIC_API_URL` in Amplify env vars points to Render backend URL (not localhost)
 - [ ] No console errors on login, dashboard, or exam portal pages
 - [ ] Tested on Chrome, Firefox, and Safari (latest versions)
 - [ ] Tested on mobile viewport (min 375px width)
@@ -61,11 +61,11 @@
 - [ ] 🔴 k6 load test passed: `p95 < 500ms` under 500 VUs
   ```bash
   k6 run load-tests/k6-exam-session.js \
-    --env BASE_URL=https://api.yourdomain.com \
+    --env BASE_URL=https://your-service.onrender.com \
     --env TEST_ID=<pilot-test-id>
   ```
 - [ ] 🔴 Error rate `< 1%` during load test
-- [ ] Screenshot of k6 results attached to this checklist
+- [ ] Screenshot / `RESULTS.md` updated with actual numbers
 - [ ] Sentry showed zero P0 alerts during load test
 
 ---

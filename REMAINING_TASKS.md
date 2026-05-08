@@ -11,13 +11,15 @@ This document consolidates all the pending tasks and checklists required to succ
 
 ---
 
-## 🛠️ 2. AWS Post-Deployment Checklist
+## 🛠️ 2. Post-Deployment Checklist
 *Sourced from `deployment_guide.md`*
 
-- [ ] Verify that the Backend health is "Green" in the Elastic Beanstalk dashboard.
+- [ ] Verify that the Render backend service shows **Live** (green) in the Render dashboard.
+- [ ] Verify `GET /health` returns `{"status":"UP"}` on the Render backend URL.
 - [ ] Verify that the Frontend URL provided by Amplify is reachable.
 - [ ] Log in with the Admin account (`admin@gmail.com`) to confirm database connectivity.
 - [ ] Upload an image in a question and verify it successfully stores and loads from the configured AWS S3 bucket.
+- [ ] Confirm Redis is connected (Render logs show `🚀 Redis connected successfully`).
 
 ---
 

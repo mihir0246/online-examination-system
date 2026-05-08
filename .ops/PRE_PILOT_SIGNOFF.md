@@ -3,22 +3,22 @@
 This checklist must be completely filled out and committed to the repository before the Phase 10 Pilot Exam is scheduled or executed. Do not proceed with live students until all boxes are ticked and signed off by the System Owner.
 
 ## 1. Infrastructure & Monitoring
-- [ ] AWS Elastic Beanstalk `alarms.config` is deployed and alarms are visible in the CloudWatch dashboard.
-- [ ] SNS Topic ARN is wired into the CloudWatch alarms.
+- [ ] Render Web Service is in **Live** state (green) in the Render dashboard.
 - [ ] Sentry alert routing is configured to escalate to Push Notification/SMS during the scheduled exam window.
-- [ ] **Uptime Monitoring**: External monitor (e.g., Better Uptime, UptimeRobot) is configured to hit the root/login page every minute and alert on failure.
-- [ ] **Audit Spikes**: MongoDB Atlas Triggers/Lambda are configured to push `OWNERSHIP_VIOLATION` and `AUTH_FAILURE` counts to CloudWatch.
+- [ ] **Uptime Monitoring**: External monitor (e.g., Better Uptime, UptimeRobot) is configured to hit `GET /health` every minute and alert on failure.
+- [ ] **Audit Spikes**: MongoDB Atlas Triggers are configured to flag spikes in `OWNERSHIP_VIOLATION` and `AUTH_FAILURE` audit events.
 
 ## 2. Data Governance & Security
 - [ ] Production Database is on MongoDB Atlas M10 tier or higher (required for PITR).
 - [ ] Monthly backup restoration test has been performed, and the `ExamEvent` TTL index successfully survived the restore.
-- [ ] Production `DATABASE_URL` and `JWT_SECRET` are securely injected via AWS Parameter Store / EB Environment Variables.
-- [ ] Redis caching layer is actively running and connected in Production.
+- [ ] Production `DATABASE_URL` and `JWT_SECRET` are securely set in **Render Environment Variables** (not in `.env` committed to git).
+- [ ] Redis (Upstash/Redis Cloud) is actively running and connected — Render logs show `🚀 Redis connected successfully`.
 
 ## 3. Application State & Testing
-- [ ] Load test passed successfully on the M10 Atlas cluster (Target: p95 < 500ms at 500 VUs).
-- [ ] Frontend changes (injection of `withCredentials: true` and `Authorization: Bearer` headers) have been successfully merged and deployed to Production.
+- [ ] Load test passed on live Render + Atlas M10 (Target: p95 < 500ms at 500 VUs). Results documented in `load-tests/RESULTS.md`.
+- [ ] Frontend `NEXT_PUBLIC_API_URL` in Amplify env vars points to the live Render HTTPS URL (not localhost).
 - [ ] The `npx prisma db push` command was successfully run against the Production Atlas cluster.
+- [ ] CORS: `FRONTEND_URL` env var on Render is locked to the exact Amplify production URL.
 
 ## 4. Personnel & Runbooks
 - [ ] On-call contacts (System Owner, IT Contact, Academic Coordinator) are confirmed and have read `INCIDENT_RESPONSE.md`.

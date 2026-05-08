@@ -49,6 +49,10 @@ export const requireRole = (...roles) => (req, res, next) => {
  * Middleware: allow access only if the user is the owner of the resource
  * (i.e., req.body.userid or req.params.userId matches req.user.id)
  * Used to prevent trainees from accessing each other's answer sheets.
+ *
+ * Bug#12 Fix (hardened): Fails CLOSED — missing userid is now a hard 400 rejection.
+ * Previously: missing userid fell through (only caught by the service-layer check).
+ * Now: the middleware itself is the single, authoritative gate. No pass-through.
  */
 export const requireSelf = (req, res, next) => {
   if (!req.user) {
@@ -56,8 +60,21 @@ export const requireSelf = (req, res, next) => {
   }
 
   const resourceUserId = req.body?.userid || req.params?.userId;
-  if (resourceUserId && resourceUserId !== req.user.id) {
+
+  // Fail-CLOSED: if userid is missing entirely, deny — do not pass through.
+  if (!resourceUserId) {
+    logger.warn(`[RBAC] requireSelf: missing userid in request from user ${req.user.id} on ${req.path}`);
+    return res.status(400).json({ success: false, message: 'Missing userid field.' });
+  }
+
+  if (resourceUserId !== req.user.id) {
     logger.warn(`[RBAC] Self-check failed: ${req.user.id} tried to access resource of ${resourceUserId}`);
+    auditLog({
+      event: AuditEvent.OWNERSHIP_VIOLATION,
+      userId: req.user.id,
+      ip: req.ip,
+      metadata: { claimedId: resourceUserId, route: req.path }
+    });
     return res.status(403).json({ success: false, message: 'Access denied.' });
   }
 

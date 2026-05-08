@@ -1,36 +1,72 @@
-# AWS Deployment Guide: Online Examination System
+# Deployment Guide: Online Examination System
 
-This guide provides the necessary steps to deploy your modernized Online Examination System onto **AWS Elastic Beanstalk** (Backend) and **AWS Amplify** (Frontend).
+This guide covers deploying the Online Examination System on **Render** (Backend) and **AWS Amplify** (Frontend).
 
 ---
 
-## 🏗️ Backend: AWS Elastic Beanstalk
+## 🏗️ Backend: Render (Web Service)
 
-The backend is built as a Node.js application. Elastic Beanstalk will automatically manage the infrastructure for you.
+The backend is a Node.js/Express app deployed as a **Render Web Service**.
 
-### 1. Environment Configuration
-In your Elastic Beanstalk dashboard, navigate to **Configuration > Software > Environment properties** and add the following keys:
+### 1. Create a Web Service on Render
+
+1. Go to [render.com](https://render.com) → **New → Web Service**
+2. Connect your GitHub repository
+3. Set the **Root Directory** to `backend`
+4. Set **Build Command**: `npm install && npx prisma generate`
+5. Set **Start Command**: `node app.js`
+6. Set **Environment**: `Node`
+
+### 2. Environment Variables
+
+In the Render dashboard → your service → **Environment**, add:
 
 | Key | Value | Description |
 | :--- | :--- | :--- |
-| `PORT` | `8080` | Required by Beanstalk's proxy (Nginx). |
-| `MONGODB_URI` | `mongodb+srv://...` | Your MongoDB Atlas connection string. |
-| `JWT_SECRET` | `your_secure_secret` | A long, random string for securing login tokens. |
-| `NODE_ENV` | `production` | Enables production optimizations. |
+| `PORT` | `10000` | Render's default port (auto-set by Render) |
+| `DATABASE_URL` | `mongodb+srv://...` | MongoDB Atlas connection string |
+| `JWT_SECRET` | `your_secure_secret` | Long random string for JWT signing |
+| `CSRF_SECRET` | `your_csrf_secret` | Long random string for CSRF tokens |
+| `NODE_ENV` | `production` | Enables production optimizations |
+| `FRONTEND_URL` | `https://your-amplify-url.amplifyapp.com` | **Must match exactly** — used for CORS |
+| `REDIS_HOST` | `your-redis-host` | Redis Cloud / Upstash host |
+| `REDIS_PORT` | `6379` | Redis port |
+| `REDIS_PASSWORD` | `your_redis_password` | Redis auth password |
+| `SENTRY_DSN` | `https://...@sentry.io/...` | From Sentry → Project Settings |
+| `AWS_REGION` | `eu-north-1` | S3 bucket region |
+| `AWS_ACCESS_KEY_ID` | `...` | IAM user Access Key |
+| `AWS_SECRET_ACCESS_KEY` | `...` | IAM user Secret Key |
+| `S3_BUCKET_NAME` | `online-exam-storage-mihir` | Your S3 bucket name |
+| `EMAIL_HOST` | `smtp.gmail.com` | SMTP host |
+| `EMAIL_PORT` | `587` | SMTP port |
+| `EMAIL_USER` | `your@gmail.com` | Gmail address |
+| `EMAIL_PASS` | `app_password` | Gmail App Password (not your login password) |
 
-### 2. Deployment Package
-1. Ensure the `backend` folder contains a `package.json` and `app.js`.
-2. Zip the contents of the `backend` folder (not the folder itself).
-3. Upload the ZIP to the Elastic Beanstalk environment.
+> **Note:** Render automatically sets `PORT`. Do not hardcode it.
+
+### 3. Redis
+
+Use **Upstash** (free tier, no card required) or **Redis Cloud**:
+1. Create a Redis database at [upstash.com](https://upstash.com)
+2. Copy the **Host**, **Port**, and **Password** into Render env vars above
+3. Render will connect on startup — the circuit breaker handles downtime gracefully
+
+### 4. HTTPS
+
+Render provides **HTTPS automatically** on all Web Services. Your backend URL will be `https://your-service-name.onrender.com`. No extra configuration needed.
 
 ---
 
 ## ⚡ Frontend: AWS Amplify
 
-Amplify is ideal for hosting React applications. It integrates directly with your GitHub repository.
+### 1. Connect Repository
 
-### 1. Build Settings
-When setting up the app in Amplify, ensure the **Build Settings** (`amplify.yml`) include the legacy OpenSSL provider, which is required by this version of `react-scripts`:
+1. Go to [Amplify Console](https://console.aws.amazon.com/amplify/)
+2. **New App → Host web app → GitHub**
+3. Select your repo and the branch (e.g., `main`)
+4. Set **Root directory** to `frontend-modern`
+
+### 2. Build Settings (`amplify.yml`)
 
 ```yaml
 version: 1
@@ -41,10 +77,9 @@ frontend:
         - npm install
     build:
       commands:
-        - export NODE_OPTIONS=--openssl-legacy-provider
         - npm run build
   artifacts:
-    baseDirectory: build
+    baseDirectory: .next
     files:
       - '**/*'
   cache:
@@ -52,64 +87,54 @@ frontend:
       - node_modules/**/*
 ```
 
-### 2. Environment Variables
-In the Amplify dashboard for your app, navigate to **Environment variables** and add:
+### 3. Environment Variables
+
+In Amplify → your app → **Environment variables**:
 
 | Key | Value | Description |
 | :--- | :--- | :--- |
-| `REACT_APP_API_BASE_URL` | `https://your-backend-url.aws.com` | The URL of your Elastic Beanstalk environment. |
+| `NEXT_PUBLIC_API_URL` | `https://your-service.onrender.com` | Your Render backend URL |
+| `NEXT_PUBLIC_SENTRY_DSN` | `https://...@sentry.io/...` | Frontend Sentry DSN |
 
-## 📦 Storage: AWS S3 (Persistent Files)
+---
 
-Since Elastic Beanstalk instances are temporary, we use **AWS S3** to store question images and Excel reports.
+## 📦 Storage: AWS S3
+
+S3 is used for question images and Excel report uploads.
 
 ### 1. Create an S3 Bucket
-1. Log in to the **AWS Console** and go to **S3**.
-2. Click **Create bucket**.
-3. **Bucket name**: e.g., `online-exam-storage-mihir` (must be unique globally).
-4. **Region**: Select `eu-north-1` (Stockholm) to match your backend.
-5. **Object Ownership**: Select **ACLs enabled** (Required for public-read access).
-6. **Block Public Access settings**: 
-   - **Uncheck** "Block all public access".
-   - Check the acknowledgment box that appears.
-7. Click **Create bucket**.
 
-### 2. Configure Public Access (Bucket Policy)
-1. Click on your new bucket name.
-2. Go to the **Permissions** tab.
-3. Scroll down to **Bucket policy** and click **Edit**.
-4. Paste the following policy (replace `YOUR_BUCKET_NAME` with your actual bucket name):
+1. Go to **AWS Console → S3 → Create bucket**
+2. **Bucket name**: e.g., `online-exam-storage-mihir`
+3. **Region**: `eu-north-1`
+4. **Object Ownership**: ACLs enabled
+5. **Block Public Access**: Uncheck "Block all public access" → acknowledge
+
+### 2. Bucket Policy (Public Read)
+
 ```json
 {
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Sid": "PublicReadGetObject",
-            "Effect": "Allow",
-            "Principal": "*",
-            "Action": "s3:GetObject",
-            "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME/*"
-        }
-    ]
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicReadGetObject",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME/*"
+    }
+  ]
 }
 ```
-5. Click **Save changes**.
-
-### 3. Add Environment Variables to Elastic Beanstalk
-Add these additional properties in your EB **Configuration > Software** settings:
-
-| Key | Value | Description |
-| :--- | :--- | :--- |
-| `AWS_REGION` | `eu-north-1` | The region of your bucket. |
-| `AWS_ACCESS_KEY_ID` | `...` | Your IAM user Access Key. |
-| `AWS_SECRET_ACCESS_KEY` | `...` | Your IAM user Secret Key. |
-| `S3_BUCKET_NAME` | `your-bucket-name` | The name you chose in Step 1. |
 
 ---
 
 ## ✅ Post-Deployment Checklist
-- [ ] Verify that the Backend health is "Green" in EB dashboard.
-- [ ] Verify that you can reach the Frontend URL provided by Amplify.
-- [ ] Log in with the Admin account (`admin@gmail.com`) to confirm database connectivity.
-- [ ] Upload an image in a question and verify it shows up in your S3 bucket.
 
+- [ ] Render service shows **Live** (green) in the dashboard
+- [ ] `GET https://your-service.onrender.com/health` returns `{"status":"UP"}`
+- [ ] Frontend Amplify URL is reachable and loads the login page
+- [ ] Log in with Admin account to confirm database connectivity
+- [ ] Upload an image in a question — verify it appears in S3
+- [ ] Redis connected (check Render logs for `🚀 Redis connected successfully`)
+- [ ] Sentry receives a test event from both backend and frontend
