@@ -17,7 +17,7 @@ This document consolidates all the pending tasks and checklists required to succ
 - [ ] Verify that the Render backend service shows **Live** (green) in the Render dashboard.
 - [ ] Verify `GET /health` returns `{"status":"UP"}` on the Render backend URL.
 - [ ] Verify that the Frontend URL provided by Amplify is reachable.
-- [ ] Log in with the Admin account (`admin@gmail.com`) to confirm database connectivity.
+- [ ] Log in with the Admin account (`<admin-email>`) to confirm database connectivity.
 - [ ] Upload an image in a question and verify it successfully stores and loads from the configured AWS S3 bucket.
 - [ ] Confirm Redis is connected (Render logs show `🚀 Redis connected successfully`).
 
