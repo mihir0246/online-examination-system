@@ -113,7 +113,7 @@ export const Answersheet = async (req, res, next) => {
   try {
     const { userid, testid } = req.body;
     if (userid !== req.user?.id) {
-      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.headers['x-forwarded-for'] || req.ip });
+      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.ip });
       return res.status(403).json({ success: false, message: "Forbidden: Cannot access another user's answersheet" });
     }
     logger.info(`Starting Answersheet for user: ${userid}, test: ${testid}`);
@@ -191,7 +191,7 @@ export const UpdateAnswers = async (req, res, next) => {
   try {
     const { testid, userid, qid, newAnswer, isBookmarked } = req.body;
     if (userid !== req.user?.id) {
-      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.headers['x-forwarded-for'] || req.ip });
+      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.ip });
       return res.status(403).json({ success: false, message: "Forbidden: Cannot modify another user's answersheet" });
     }
     logger.info(`Update answer request: ${JSON.stringify(req.body)}`);
@@ -231,7 +231,7 @@ export const UpdateAnswers = async (req, res, next) => {
     const nowSeconds = Math.floor(Date.now() / 1000);
     if (nowSeconds > endTimeSeconds + 60) { // 60s grace period for network lag
       logger.warn(`Update answer blocked: Exam window closed. Sheet: ${sheet.id}`);
-      await auditLog({ event: AuditEvent.EXAM_WINDOW_VIOLATION, traineeId: userid, testId: testid, metadata: { submissionTime: nowSeconds, deadline: endTimeSeconds, delta: nowSeconds - endTimeSeconds }, ip: req.headers['x-forwarded-for'] || req.ip });
+      await auditLog({ event: AuditEvent.EXAM_WINDOW_VIOLATION, traineeId: userid, testId: testid, metadata: { submissionTime: nowSeconds, deadline: endTimeSeconds, delta: nowSeconds - endTimeSeconds }, ip: req.ip });
       return res.status(403).json({ success: false, message: "Exam window closed" });
     }
 
@@ -256,7 +256,7 @@ export const syncState = async (req, res) => {
   try {
     const { userid, testid, currentQuestionIdx, remainingTime } = req.body;
     if (userid !== req.user?.id) {
-      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.headers['x-forwarded-for'] || req.ip });
+      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.ip });
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
     if (!userid || !testid) {
@@ -282,7 +282,7 @@ export const EndTest = async (req, res) => {
   try {
     const { testid, userid } = req.body;
     if (userid !== req.user?.id) {
-      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.headers['x-forwarded-for'] || req.ip });
+      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.ip });
       return res.status(403).json({ success: false, message: "Forbidden: Cannot modify another user's answersheet" });
     }
 
@@ -306,7 +306,7 @@ export const EndTest = async (req, res) => {
       const endTimeSeconds = sheet.startTime + (sheet.test.duration * 60);
       const nowSeconds = Math.floor(Date.now() / 1000);
       if (nowSeconds > endTimeSeconds + 120) {
-        await auditLog({ event: AuditEvent.EXAM_WINDOW_VIOLATION, traineeId: userid, testId: testid, metadata: { submissionTime: nowSeconds, deadline: endTimeSeconds, delta: nowSeconds - endTimeSeconds }, ip: req.headers['x-forwarded-for'] || req.ip });
+        await auditLog({ event: AuditEvent.EXAM_WINDOW_VIOLATION, traineeId: userid, testId: testid, metadata: { submissionTime: nowSeconds, deadline: endTimeSeconds, delta: nowSeconds - endTimeSeconds }, ip: req.ip });
         throw new Error("Exam window closed");
       }
 
@@ -369,14 +369,14 @@ export const fetchOwnResult = async (req, res) => {
   try {
     const { userid, testid } = req.body;
     if (userid !== req.user?.id) {
-      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.headers['x-forwarded-for'] || req.ip });
+      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.ip });
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
 
     // --- Plan 2.1: Result Privacy Guard ---
     const test = await prisma.test.findUnique({ where: { id: testid } });
     if (!test || !test.isResultPublished) {
-      await auditLog({ event: AuditEvent.RESULT_ACCESS_DENIED, traineeId: userid, testId: testid, ip: req.headers['x-forwarded-for'] || req.ip });
+      await auditLog({ event: AuditEvent.RESULT_ACCESS_DENIED, traineeId: userid, testId: testid, ip: req.ip });
       return res.status(403).json({ 
         success: false, 
         message: "Results have not been published yet." 
@@ -499,7 +499,7 @@ export const heartbeat = async (req, res) => {
   try {
     const { userid, testid } = req.body;
     if (userid !== req.user?.id) {
-      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.headers['x-forwarded-for'] || req.ip });
+      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.ip });
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
     if (!userid || !testid) {
@@ -593,7 +593,7 @@ export const logEvent = async (req, res) => {
     }
 
     if (userid !== req.user?.id) {
-      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.headers['x-forwarded-for'] || req.ip });
+      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.ip });
       return res.status(403).json({ success: false, message: "Forbidden" });
     }
 

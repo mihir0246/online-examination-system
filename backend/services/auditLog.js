@@ -89,7 +89,7 @@ export const auditFromReq = (req, event, extra = {}) => {
   return auditLog({
     event,
     userId: req.user?.id || null,
-    ip: req.ip || req.headers?.['x-forwarded-for'] || null,
+    ip: req.ip || null,
     ...extra,
   });
 };

@@ -173,7 +173,7 @@ export const deleteTrainee = async (req, res, next) => {
       userId: adminId,
       traineeId: id,
       metadata: { reason, deletedAt: new Date().toISOString() },
-      ip: req.headers['x-forwarded-for'] || req.ip
+      ip: req.ip
     });
 
     return res.json({ success: true, message: "Trainee permanently deleted and anonymised" });
