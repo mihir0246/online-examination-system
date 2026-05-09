@@ -5,7 +5,7 @@ require('dotenv').config();
 
 const seedAdmin = async () => {
     try {
-        const adminEmail = process.env.ADMIN_EMAIL || 'admin@gmail.com';
+        const adminEmail = process.env.ADMIN_EMAIL || '<admin-email>';
         const adminPassword = process.env.ADMIN_PASSWORD || 'admin';
 
         if (adminPassword === 'admin') {
