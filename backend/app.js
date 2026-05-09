@@ -2,9 +2,10 @@ import dotenv from 'dotenv';
 import * as Sentry from "@sentry/node";
 dotenv.config();
 
-// ── Fail-fast: refuse to start with missing or default secrets ───────────────
+// Validate required environment variables at startup
 if (!process.env.JWT_SECRET) {
-  throw new Error('[STARTUP] JWT_SECRET is not set — refusing to start. Set it in your environment variables.');
+  console.error('FATAL: JWT_SECRET environment variable is not set');
+  process.exit(1);
 }
 if (!process.env.CSRF_SECRET) {
   throw new Error('[STARTUP] CSRF_SECRET is not set — refusing to start. Set it in your environment variables.');
