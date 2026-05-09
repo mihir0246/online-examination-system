@@ -8,8 +8,9 @@ import prisma from "./prisma.js";
 import logger from "./logger.js";
 import { isTokenBlacklisted } from "./redis.js";
 
+// Validate required environment variables at startup
 if (!process.env.JWT_SECRET) {
-  throw new Error('JWT_SECRET environment variable must be set');
+  throw new Error('FATAL: JWT_SECRET environment variable is not set. Application cannot start securely.');
 }
 
 // User Login Local Strategy
