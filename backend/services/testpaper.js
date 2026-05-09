@@ -46,7 +46,10 @@ export const createEditTest = async (req, res, next) => {
       // Ownership: TRAINERs may only edit tests they created
       if (req.user.type === 'TRAINER') {
         const existing = await prisma.test.findUnique({ where: { id: _id }, select: { createdById: true } });
-        if (!existing || existing.createdById !== req.user.id) {
+        if (!existing) {
+          return res.status(404).json({ success: false, message: 'Test not found.' });
+        }
+        if (existing.createdById !== req.user.id) {
           return res.status(403).json({ success: false, message: 'Forbidden: You can only edit tests you created.' });
         }
       }
