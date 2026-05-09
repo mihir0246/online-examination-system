@@ -43,6 +43,14 @@ export const createEditTest = async (req, res, next) => {
     }
 
     if (_id) {
+      // Ownership: TRAINERs may only edit tests they created
+      if (req.user.type === 'TRAINER') {
+        const existing = await prisma.test.findUnique({ where: { id: _id }, select: { createdById: true } });
+        if (!existing || existing.createdById !== req.user.id) {
+          return res.status(403).json({ success: false, message: 'Forbidden: You can only edit tests you created.' });
+        }
+      }
+
       await prisma.test.update({
         where: { id: _id },
         data: { 
@@ -189,6 +197,11 @@ export const beginTest = async (req, res, next) => {
     const testRecord = await prisma.test.findUnique({ where: { id } });
     if (!testRecord) return res.status(404).json({ success: false, message: "Test not found." });
     if (testRecord.testconducted) return res.status(400).json({ success: false, message: "Test has already been conducted." });
+
+    // Ownership: TRAINERs may only start tests they created
+    if (req.user.type === 'TRAINER' && testRecord.createdById !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Forbidden: You can only start tests you created.' });
+    }
     
     const updated = await prisma.test.update({
       where: { id },
@@ -225,6 +238,11 @@ export const endTest = async (req, res, next) => {
     if (!testRecord) return res.status(404).json({ success: false, message: "Test not found." });
     if (testRecord.testconducted) return res.status(400).json({ success: false, message: "Test has already ended." });
     if (!testRecord.testbegins) return res.status(400).json({ success: false, message: "Test has not started yet." });
+
+    // Ownership: TRAINERs may only end tests they created
+    if (req.user.type === 'TRAINER' && testRecord.createdById !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Forbidden: You can only end tests you created.' });
+    }
 
     const test = await prisma.test.update({
       where: { id },

@@ -2,6 +2,14 @@ import dotenv from 'dotenv';
 import * as Sentry from "@sentry/node";
 dotenv.config();
 
+// ── Fail-fast: refuse to start with missing or default secrets ───────────────
+if (!process.env.JWT_SECRET) {
+  throw new Error('[STARTUP] JWT_SECRET is not set — refusing to start. Set it in your environment variables.');
+}
+if (!process.env.CSRF_SECRET) {
+  throw new Error('[STARTUP] CSRF_SECRET is not set — refusing to start. Set it in your environment variables.');
+}
+
 // ── Guard: suppress Bull/bluebird AbortErrors when Redis is unavailable ──────
 // Bull uses bluebird internally; when Redis is down, BRPOPLPUSH throws an
 // AbortError with code NR_CLOSED which escapes as an unhandledRejection.
@@ -144,7 +152,7 @@ const {
   generateCsrfToken,
   doubleCsrfProtection,
 } = doubleCsrf({
-  getSecret: () => process.env.CSRF_SECRET || "supersecret", 
+  getSecret: () => process.env.CSRF_SECRET,
   cookieName: "x-csrf-token",
   cookieOptions: {
     httpOnly: true,

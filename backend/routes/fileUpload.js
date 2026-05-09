@@ -44,7 +44,17 @@ router.post('/', upload.single('file'), async (req, res, next) => {
             });
         }
 
-        // 2. Generate S3 key
+        // 2. Validate file extension against allowlist
+        const ext = path.extname(req.file.originalname).toLowerCase();
+        const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.pdf'];
+        if (!ALLOWED_EXTENSIONS.includes(ext)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid file extension. Allowed: .jpg, .jpeg, .png, .pdf'
+            });
+        }
+
+        // 3. Generate S3 key
         const fileName = Date.now().toString() + '-' + sanitizeFilename(req.file.originalname);
         const key = `uploads/${fileName}`;
 

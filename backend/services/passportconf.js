@@ -62,7 +62,7 @@ const tokenExtractors = [
 
 const opts = {
   jwtFromRequest: ExtractJwt.fromExtractors(tokenExtractors),
-  secretOrKey: process.env.JWT_SECRET || "default-secret-change-me",
+  secretOrKey: process.env.JWT_SECRET,
   // Plan 2.4: Pass req so we can extract the raw token for blacklist check
   passReqToCallback: true
 };

@@ -42,8 +42,8 @@ export const userlogin = (req, res, next) => {
     }
 
     const token = jwt.sign(
-      { id: user.id, email: user.emailid, type: user.type }, 
-      process.env.JWT_SECRET || "default-secret-change-me", 
+      { id: user.id, email: user.emailid, type: user.type },
+      process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
 

@@ -85,7 +85,7 @@ export const traineeenter = async (req, res, next) => {
 
     const token = jwt.sign(
       { id: trainee.id, emailid: trainee.emailid, type: 'TRAINEE' },
-      process.env.JWT_SECRET || "default-secret-change-me",
+      process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
 
