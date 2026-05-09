@@ -13,7 +13,7 @@ The backend is a Node.js/Express app deployed as a **Render Web Service**.
 1. Go to [render.com](https://render.com) → **New → Web Service**
 2. Connect your GitHub repository
 3. Set the **Root Directory** to `backend`
-4. Set **Build Command**: `npm install && npx prisma db push && npx prisma generate`
+4. Set **Build Command**: `npm install && npx prisma migrate deploy && npx prisma generate`
 5. Set **Start Command**: `node app.js`
 6. Set **Environment**: `Node`
 
@@ -113,30 +113,17 @@ S3 is used for question images and Excel report uploads.
 
 ### 2. Bucket Security Policy
 
-> **Security Warning (PII):** If you are storing Excel result reports containing student names and grades, do **not** make the entire bucket public.
+> **CRITICAL PRIVACY WARNING:** Student Excel reports contain PII (names, emails, grades). Making the upload bucket public violates privacy best practices and data protection regulations.
 
-**Option A: Public Assets Only (Images)**
-If the bucket only stores question images and public resources:
-1. Uncheck "Block all public access" and acknowledge.
-2. Go to the **Permissions** tab → **Bucket policy** and paste:
+You must choose one of the following secure architectures:
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "PublicReadGetObject",
-      "Effect": "Allow",
-      "Principal": "*",
-      "Action": "s3:GetObject",
-      "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME/*"
-    }
-  ]
-}
-```
+**Architecture 1: Private Bucket with Signed URLs (Recommended)**
+Keep **Block all public access** enabled on your S3 bucket. Configure your backend to generate short-lived **AWS S3 Presigned URLs** for authenticated access to both reports and images. No public bucket policy is required.
 
-**Option B: Private Content (Reports + Images)**
-If storing sensitive Excel reports, keep **Block all public access** enabled. You must configure the backend `s3.js` to generate **AWS S3 Presigned URLs** for short-lived, authenticated access to reports and images.
+**Architecture 2: Separate Buckets**
+Create two separate S3 buckets to isolate risk:
+1. **Public Bucket (Images Only):** Can be configured with public read access if required.
+2. **Private Bucket (Reports):** Kept fully private with "Block all public access" enabled to protect student PII.
 
 ---
 
