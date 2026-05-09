@@ -26,7 +26,9 @@ const upload = multer({
   fileFilter: (req, file, cb) => {
     const mime = file.mimetype;
     if (!ALLOWED_PARSE_MIME.includes(mime)) {
-      return cb(new Error('Invalid file type. Only PDF and DOCX are accepted.'), false);
+      const err = new Error('Invalid file type. Only PDF and DOCX are accepted.');
+      err.status = 400;
+      return cb(err, false);
     }
     cb(null, true);
   }
