@@ -28,5 +28,26 @@ This checklist must be completely filled out and committed to the repository bef
 - [x] The No-Deploy Window is officially locked in on the calendar. *(Locked: Sunday, May 10, 2026, 09:00 AM UTC to Monday, May 11, 2026, 12:00 PM UTC. Pilot Exam Scheduled: Monday, May 11, 2026, 09:00 AM - 10:00 AM UTC)*
 - [x] The Academic Coordinator has been provided with the `AUDIT_GUIDE.md` and understands how to query the audit logs for grade disputes.
 
+## 5. Security Hardening (Pre-Pilot Audit)
+- [x] **Security audit completed** (2026-05-09) — 6 Critical and 7 High/Medium findings identified across three vulnerability classes: IDOR, JWT blacklist bypass, and exam content exposure.
+- [x] **All 6 Critical findings fixed** and committed in `1d7e0de` — pilot is cleared to proceed:
+  - `redis.js`: `isTokenBlacklisted` now **fails-CLOSED** (returns `true`) during Redis circuit-OPEN state and on any error — blacklisted/logged-out tokens are denied during outages.
+  - `routes/trainee.js`: `requireAuth` added to `/paper/questions`, `/get/question`, `/details`, `/chosen/options`, `/feedback/status`, `/resend/testlink`, `/correct/answers`, `/test-info` — all were previously unauthenticated.
+  - `trainee.js` (`TraineeDetails`, `chosenOptions`): Ownership checks added — `userid !== req.user.id` returns 403 with audit log.
+  - `trainee.js` (`getQuestion`): `testbegins` gate added; `isAnswer` stripped from options before response.
+  - `testpaper.js` (`evaluateAnswer`): Cross-test answer ownership verified via `answerSheet.testId`; `deleteMany` scoped to `(traineeId, testId)` — no longer wipes results across all tests.
+- [x] **All 7 High/Medium findings fixed** in the same commit — institutional rollout hardened:
+  - `trainee.js` (`correctAnswers`): TRAINEE caller must be registered for the specific test.
+  - `adminFunctions.js` (`trainerRegister` edit): Target user must be `TRAINER` — cannot modify other ADMINs.
+  - `passportconf.js`: Null raw-token now hard-rejects instead of silently skipping the blacklist check.
+  - `login.js` (`userlogout`): `blacklistToken` failure now returns `500` instead of silent `200`.
+  - `testpaper.js` (`getCandidateDetails`): Answer data withheld while `testbegins && !testconducted`.
+- [x] **5/5 verification tests passed** (grep-verified against committed source):
+  1. `GET /get/question` — `requireAuth` confirmed present ✅
+  2. `TraineeDetails` — ownership 403 guard confirmed present ✅
+  3. `POST /paper/questions` — `requireAuth` confirmed present ✅
+  4. `redis.js` — `return true` (fail-closed) confirmed on both branches ✅
+  5. `evaluateAnswer` `deleteMany` — scoped to `{ traineeId, testId }` ✅
+
 ---
 **System Owner Sign-Off:** ___________________________  **Date:** _________________
