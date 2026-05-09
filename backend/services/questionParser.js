@@ -11,8 +11,14 @@ const HEADER_LINE_RE = /^(sr\.?\s*no\.?\s*|sr\s*|no\.?\s*)(questions?\s*|q\.\s*)
 // Noise-only line (metadata columns like CO1, PO2, 5 Marks)
 const NOISE_ONLY_RE  = /^(co\d+|po\d+|btl\s*\d*|l[1-6]|marks?:?\s*\d*|\d{1,3}[\.\):]?|sr\.?\s*no\.?|questions?|bloom|unit\s*\d*|module\s*\d*|course\s*outcome\w*|program\s*outcome\w*)$/i;
 
-// Suffixes that appear AFTER question text in a flattened table row
-const SUFFIX_RE = /([\.\?!]?\s*)(CO\d+(\s*,\s*CO\d+)*|PO\d+(\s*,\s*PO\d+)*|C\.O\.\s*\d+|P\.O\.\s*\d+|BTL\s*\d+|L[1-6]|\d{1,2}\s*[Mm]arks?)\s*.*?$/gi;
+const SUFFIX_PATTERNS = [
+  /\bCO\d+\b/i, /\bPO\d+\b/i, /\bBTL\s?\d+\b/i,
+  /\bL[1-6]\b/i, /\d{1,2}\s?[Mm]arks?\b/i,
+  /\bC\.O\.\s?\d+\b/i, /\bP\.O\.\s?\d+\b/i
+];
+
+const hasSuffix = (text) =>
+  SUFFIX_PATTERNS.some(p => p.test(text.slice(-30)));
 
 // Signal for start of a new row (e.g., "1. What is...")
 const ROW_START_RE = /^(\d{1,3})[\.\)\s]+\s*(.+)/;
@@ -35,11 +41,23 @@ const outputSchema = z.array(z.object({
 
 const cleanBody = (raw) => {
   if (!raw) return "";
-  return raw
-    .replace(SUFFIX_RE, '') // strip trailing CO/PO/Marks
+  let body = raw
     .replace(/^\d{1,3}[\.\)\s]+/, '') // strip leading serial
     .replace(/\s{2,}/g, ' ')
     .trim();
+    
+  // strip trailing CO/PO/Marks
+  if (hasSuffix(body)) {
+    const last30 = body.slice(-30);
+    const match = SUFFIX_PATTERNS.find(p => p.test(last30));
+    if (match) {
+      const matchText = last30.match(match)[0];
+      body = body.substring(0, body.lastIndexOf(matchText)).trim();
+      // Remove trailing punctuation that might have preceded the suffix
+      body = body.replace(/[\.\?!]\s*$/, '').trim();
+    }
+  }
+  return body;
 };
 
 const isLegitContent = (text) => {
@@ -132,7 +150,7 @@ const parseTableConcatenated = (lines) => {
     }
 
     // Flush if we see a clear suffix (end of row indicators)
-    if (SUFFIX_RE.test(line)) {
+    if (hasSuffix(line)) {
       flush();
     }
   }
