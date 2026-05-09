@@ -14,7 +14,6 @@ import {
   resendmail,
   correctAnswers,
   Answersheet,
-  flags,
   TraineeDetails,
   Testquestions,
   chosenOptions,
@@ -89,18 +88,17 @@ const requireAuth = (req, res, next) => {
 
 // --- Truly public routes (registration only — no token exists yet) ---
 router.post('/enter', traineeEnterLimiter, traineeenter);
-router.post('/feedback', feedback);  // post-exam, trainee may no longer have cookie
-router.post('/flags',   flags);      // returns empty array, harmless
+router.post('/feedback', requireAuth, feedback);  // protected against unauthenticated spam
 
 // --- Authenticated trainee routes (require valid trainee JWT) ---
-router.post('/resend/testlink',  requireAuth, resendmail);
-router.post('/correct/answers',  requireAuth, correctAnswers);
-router.post('/details',          requireAuth, TraineeDetails);
-router.post('/paper/questions',  requireAuth, Testquestions);
-router.post('/chosen/options',   requireAuth, chosenOptions);
-router.post('/get/question',     requireAuth, getQuestion);
-router.post('/feedback/status',  requireAuth, checkFeedback);
-router.post('/test-info',        requireAuth, getTestInfo);
+router.post('/resend/testlink',  requireAuth, requireSelf, resendmail);
+router.post('/correct/answers',  requireAuth, requireSelf, correctAnswers);
+router.post('/details',          requireAuth, requireSelf, TraineeDetails);
+router.post('/paper/questions',  requireAuth, requireSelf, Testquestions);
+router.post('/chosen/options',   requireAuth, requireSelf, chosenOptions);
+router.post('/get/question',     requireAuth, requireSelf, getQuestion);
+router.post('/feedback/status',  requireAuth, requireSelf, checkFeedback);
+router.post('/test-info',        requireAuth, requireSelf, getTestInfo);
 
 // --- Phase 5: Protected Routes (requireSelf enforces resource ownership at route layer) ---
 router.post('/answersheet',       requireAuth, requireSelf, Answersheet);
