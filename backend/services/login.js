@@ -131,8 +131,14 @@ export const userlogout = async (req, res) => {
     }
   } catch (err) {
     logger.error(`Logout blacklist error: ${err.message}`);
-    // Still proceed — cookie must be cleared regardless of blacklist status
+    // Security: a failed blacklist means the token remains valid.
+    // Return 500 so the client knows logout did not fully succeed and can retry.
+    return res.status(500).json({
+      success: false,
+      message: 'Logout failed: session revocation unsuccessful. Please try again.'
+    });
   }
+
 
   if (token) {
     auditLog({ event: AuditEvent.USER_LOGOUT, ip: req.ip, metadata: { tokenRevoked: !!token } });

@@ -87,17 +87,20 @@ const requireAuth = (req, res, next) => {
   })(req, res, next);
 };
 
+// --- Truly public routes (registration only — no token exists yet) ---
 router.post('/enter', traineeEnterLimiter, traineeenter);
-router.post('/feedback', feedback);
-router.post('/resend/testlink', resendmail);
-router.post('/correct/answers', correctAnswers);
-router.post('/flags', flags);
-router.post('/details', TraineeDetails);
-router.post('/paper/questions', Testquestions);
-router.post('/chosen/options', chosenOptions);
-router.post('/get/question', getQuestion);
-router.post('/feedback/status', checkFeedback);
-router.post('/test-info', getTestInfo);
+router.post('/feedback', feedback);  // post-exam, trainee may no longer have cookie
+router.post('/flags',   flags);      // returns empty array, harmless
+
+// --- Authenticated trainee routes (require valid trainee JWT) ---
+router.post('/resend/testlink',  requireAuth, resendmail);
+router.post('/correct/answers',  requireAuth, correctAnswers);
+router.post('/details',          requireAuth, TraineeDetails);
+router.post('/paper/questions',  requireAuth, Testquestions);
+router.post('/chosen/options',   requireAuth, chosenOptions);
+router.post('/get/question',     requireAuth, getQuestion);
+router.post('/feedback/status',  requireAuth, checkFeedback);
+router.post('/test-info',        requireAuth, getTestInfo);
 
 // --- Phase 5: Protected Routes (requireSelf enforces resource ownership at route layer) ---
 router.post('/answersheet',       requireAuth, requireSelf, Answersheet);
@@ -110,7 +113,6 @@ router.post('/fetch-own-result',  requireAuth, requireSelf, fetchOwnResult);
 router.post('/log-event',         requireAuth, requireSelf, logEvent);
 router.get('/export-my-data',     requireAuth, exportMyData);
 
-// Re-register log-event (removing old unauthenticated registration below)
 
 
 export default router;

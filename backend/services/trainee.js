@@ -525,6 +525,17 @@ export const correctAnswers = async (req, res) => {
     });
   }
 
+  // IDOR fix: if caller is a TRAINEE, verify they are registered for this specific test
+  if (req.user?.type === 'TRAINEE') {
+    const registered = await prisma.trainee.findFirst({
+      where: { id: req.user.id, testId: testid }
+    });
+    if (!registered) {
+      await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user.id, metadata: { testid, route: req.path }, ip: req.ip });
+      return res.status(403).json({ success: false, message: 'Forbidden: You are not registered for this test.' });
+    }
+  }
+
   const test = await prisma.test.findUnique({
     where: { id: testid },
     include: { questions: { include: { options: { where: { isAnswer: true } } } } }
@@ -538,12 +549,25 @@ export const flags = async (req, res) => {
 
 export const TraineeDetails = async (req, res) => {
   const { userid } = req.body;
+
+  // IDOR fix: trainees may only read their own details
+  if (userid !== req.user?.id) {
+    await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.ip });
+    return res.status(403).json({ success: false, message: 'Forbidden: Cannot access another trainee\'s details.' });
+  }
+
   const trainee = await prisma.trainee.findUnique({ where: { id: userid } });
   return res.json({ success: true, data: trainee });
 };
 
 export const chosenOptions = async (req, res) => {
   const { userid, testid } = req.body;
+
+  // IDOR fix: trainees may only read their own answer selections
+  if (userid !== req.user?.id) {
+    await auditLog({ event: AuditEvent.OWNERSHIP_VIOLATION, userId: req.user?.id, metadata: { claimedId: userid, route: req.path }, ip: req.ip });
+    return res.status(403).json({ success: false, message: 'Forbidden: Cannot access another trainee\'s answers.' });
+  }
 
   // --- Plan 2.1: Result Privacy Guard ---
   const testRecord = await prisma.test.findUnique({ where: { id: testid } });
@@ -562,12 +586,32 @@ export const chosenOptions = async (req, res) => {
 };
 
 export const getQuestion = async (req, res) => {
-  const { qid } = req.body;
+  const { qid, testid } = req.body;
+
+  // Content gate: require testid so we can verify the exam is actually live
+  if (!testid) {
+    return res.status(400).json({ success: false, message: 'testid is required.' });
+  }
+
+  const test = await prisma.test.findUnique({ where: { id: testid }, select: { testbegins: true } });
+  if (!test || !test.testbegins) {
+    return res.status(403).json({ success: false, message: 'Exam questions are not available before the scheduled start time.' });
+  }
+
   const question = await prisma.question.findUnique({
     where: { id: qid },
     include: { options: true }
   });
-  return res.json({ success: true, data: question });
+
+  if (!question) return res.status(404).json({ success: false, data: null });
+
+  // Strip correct-answer flags before sending to client
+  const safeQuestion = {
+    ...question,
+    options: question.options.map(({ isAnswer: _, ...opt }) => opt)
+  };
+
+  return res.json({ success: true, data: safeQuestion });
 };
 
 export const getTestInfo = async (req, res) => {

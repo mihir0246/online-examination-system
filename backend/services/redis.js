@@ -63,20 +63,22 @@ export const blacklistToken = async (token, ttl) => {
 
 /**
  * Check if a token is blacklisted.
- * SECURITY NOTE: When Redis circuit is OPEN, we cannot verify.
- * We fail-open (return false) to avoid locking all users out during outages.
- * Pair this with short JWT expiry (15min + silent refresh) to bound blast radius.
+ * SECURITY NOTE: Fails CLOSED — when Redis circuit is OPEN or any error occurs,
+ * we return true (deny the token) rather than risk accepting a revoked session.
+ * Active exam sessions will fail during a Redis outage, but that is preferable
+ * to allowing deleted or logged-out users back in.
  */
 export const isTokenBlacklisted = async (token) => {
   if (redisBreaker.getState() === 'OPEN') {
-    logger.warn('[Security] Redis circuit OPEN — blacklist check skipped. Token accepted (fail-open).');
-    return false;
+    logger.warn('[Security] Redis circuit OPEN — blacklist cannot be verified. Failing closed (token denied).');
+    return true; // fail-closed: deny all tokens when blacklist is unreachable
   }
   try {
     const result = await redisBreaker.execute(async () => redis.get(`blacklist:${token}`));
     return result === 'true';
   } catch {
-    return false;
+    logger.warn('[Security] Redis blacklist check threw — failing closed (token denied).');
+    return true; // fail-closed on any error
   }
 };
 

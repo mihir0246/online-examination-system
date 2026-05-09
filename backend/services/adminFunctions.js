@@ -33,11 +33,21 @@ export const trainerRegister = async (req, res, next) => {
     const { name, password, emailid, contact, subjectIds = [], _id } = validation.data;
 
     if (_id) {
+      // IDOR fix: only allow editing TRAINER accounts, not other ADMINs
+      const target = await prisma.user.findUnique({ where: { id: _id }, select: { type: true } });
+      if (!target) {
+        return res.status(404).json({ success: false, message: "User not found." });
+      }
+      if (target.type !== 'TRAINER') {
+        return res.status(403).json({ success: false, message: "Forbidden: Can only edit TRAINER accounts via this endpoint." });
+      }
+
       await prisma.user.update({
         where: { id: _id },
         data: { name, contact, subjectIds }
       });
       return res.json({ success: true, message: "Trainer's Profile updated successfully!" });
+
     } else {
       if (!emailid || !password) {
         return res.status(400).json({ success: false, message: "Email and password required for new registration" });

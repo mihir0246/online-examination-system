@@ -72,12 +72,18 @@ passport.use('user-token', new JwtStrategy(opts, async (req, jwt_payload, done) 
   try {
     // Extract the raw token to check against blacklist
     const rawToken = ExtractJwt.fromExtractors(tokenExtractors)(req);
-    if (rawToken) {
-      const blacklisted = await isTokenBlacklisted(rawToken);
-      if (blacklisted) {
-        logger.warn(`Blocked blacklisted token for user ${jwt_payload.id}`);
-        return done(null, false, { success: false, message: 'Session has been revoked. Please log in again.' });
-      }
+
+    // Security: if the token cannot be re-extracted (e.g. extraction-path inconsistency),
+    // block the request rather than silently skip the blacklist check.
+    if (!rawToken) {
+      logger.warn(`[Security] JWT strategy invoked but token could not be re-extracted — blocking request as precaution.`);
+      return done(null, false, { success: false, message: 'Token extraction error. Please log in again.' });
+    }
+
+    const blacklisted = await isTokenBlacklisted(rawToken);
+    if (blacklisted) {
+      logger.warn(`Blocked blacklisted token for user ${jwt_payload.id}`);
+      return done(null, false, { success: false, message: 'Session has been revoked. Please log in again.' });
     }
 
     // Bug#9 Fix: Trainees are stored in a separate collection from Users.

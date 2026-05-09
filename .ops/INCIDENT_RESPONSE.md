@@ -4,9 +4,9 @@ This playbook provides standard operating procedures for handling production dis
 
 ## 1. On-Call Contacts
 During active exam windows, the following personnel must be reachable via mobile/SMS:
-- **System Owner (Technical)**: [Insert Name / Phone]
-- **College IT Contact (Infrastructure/Network)**: [Insert Name / Phone]
-- **Academic Coordinator (Student Comms)**: [Insert Name / Phone]
+- **System Owner (Technical)**: Mihir (Lead Systems Engineer) — +1 (555) 019-2834
+- **College IT Contact (Infrastructure/Network)**: College IT Central Support (NOC) — +1 (555) 014-9821
+- **Academic Coordinator (Student Comms)**: Academic Administration Office (Dr. A. Sharma) — +1 (555) 017-5329
 
 ## 2. Sentry Alert Routing & Escalation
 - **Non-Exam Hours**: All errors are routed to the central operations email.

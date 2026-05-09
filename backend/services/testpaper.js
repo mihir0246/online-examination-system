@@ -383,19 +383,42 @@ export const TestDetails = async (req, res) => {
 export const getCandidateDetails = async (req, res) => {
   try {
     const { _id } = req.body;
+
     const trainee = await prisma.trainee.findUnique({
       where: { id: _id },
       include: { 
-        answerSheet: { include: { answers: true } }, 
         results: { orderBy: { createdAt: 'asc' } },
         feedback: true
       }
     });
-    return res.json({ success: true, data: trainee });
+
+    if (!trainee) {
+      return res.status(404).json({ success: false, data: null });
+    }
+
+    // Security: withhold live answer selections while the exam is in progress
+    const test = await prisma.test.findUnique({
+      where: { id: trainee.testId },
+      select: { testbegins: true, testconducted: true }
+    });
+
+    const examIsLive = test && test.testbegins && !test.testconducted;
+
+    let answerSheet = null;
+    if (!examIsLive) {
+      // Exam has ended or not yet started — safe to expose answer data
+      answerSheet = await prisma.answerSheet.findFirst({
+        where: { traineeId: _id },
+        include: { answers: true }
+      });
+    }
+
+    return res.json({ success: true, data: { ...trainee, answerSheet } });
   } catch (err) {
     return res.status(500).json({ success: false, message: "Server Error" });
   }
 };
+
 
 export const checkTestName = async (req, res) => {
   const { testname } = req.body;
@@ -483,12 +506,25 @@ export const evaluateAnswer = async (req, res) => {
 
     // Trainer subject access validated by requireTestAccess middleware
 
-    // Find Answer and Question to check max weightage
+    // Fetch Answer and its parent sheet to verify cross-ownership
     const answer = await prisma.answer.findUnique({
-      where: { id: answerId }
+      where: { id: answerId },
+      include: { answerSheet: { select: { testId: true, traineeId: true } } }
     });
 
     if (!answer) return res.status(404).json({ success: false, message: "Answer not found" });
+
+    // IDOR fix: verify the answer belongs to the test being evaluated
+    if (answer.answerSheet.testId !== testId) {
+      logger.warn(`[Security] evaluateAnswer: answer ${answerId} belongs to test ${answer.answerSheet.testId}, not ${testId}. User: ${req.user?.id}`);
+      return res.status(403).json({ success: false, message: "Forbidden: This answer does not belong to the specified test." });
+    }
+
+    // IDOR fix: verify the traineeId in the request matches the sheet owner
+    if (answer.answerSheet.traineeId !== traineeId) {
+      logger.warn(`[Security] evaluateAnswer: traineeId mismatch. Claimed: ${traineeId}, Actual: ${answer.answerSheet.traineeId}`);
+      return res.status(403).json({ success: false, message: "Forbidden: traineeId does not match this answer." });
+    }
 
     const question = await prisma.question.findUnique({
       where: { id: answer.questionId }
@@ -501,9 +537,10 @@ export const evaluateAnswer = async (req, res) => {
       data: { score: finalScore, isEvaluated: true }
     });
 
-    // Delete existing Result so gresult recalculates it
+    // Scoped delete: only delete the result for this specific (traineeId, testId) pair
+    // NOT deleteMany({ where: { traineeId } }) which would wipe results across ALL tests
     await prisma.result.deleteMany({
-      where: { traineeId }
+      where: { traineeId, testId }
     });
 
     // Recalculate
@@ -515,6 +552,7 @@ export const evaluateAnswer = async (req, res) => {
     return res.status(500).json({ success: false, message: "Server Error" });
   }
 };
+
 
 export const sendResultEmail = async (req, res, next) => {
   try {

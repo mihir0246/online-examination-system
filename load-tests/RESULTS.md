@@ -28,30 +28,25 @@ k6 run -e VUS=2000 -e BASE_URL=https://<your-aws-url> -e TEST_ID=<active-test-id
 
 ## 1. Baseline Test (500 VUs)
 **Goal**: Establish a baseline on the warm infrastructure.
-**Status**: [PENDING]
+**Status**: COMPLETED (Thresholds crossed due to cross-region Redis)
 
 | Metric | Target | Actual | Pass/Fail |
 |--------|--------|--------|-----------|
-| HTTP Request p(95) | < 500ms | _ms | _ |
-| Error Rate | < 1.00% | _% | _ |
-| Answer Save p(95) | < 300ms | _ms | _ |
-| Submit Exam p(95) | < 1000ms | _ms | _ |
+| HTTP Request p(95) | < 500ms | 1920ms | FAIL |
+| Error Rate | < 1.00% | 0.00% | PASS |
+| Answer Save p(95) | < 300ms | 1368ms | FAIL |
+| Submit Exam p(95) | < 1000ms | 2814.3ms | FAIL |
 
 ### Observations & Fixes (500 VUs)
-_Document any bottlenecks discovered here (e.g., MongoDB pool exhaustion, EB CPU spikes) and what was fixed before re-running._
+- **Bottleneck Discovered**: Highly elevated latency at scale. Under 500 VUs, the system remained perfectly functional with **0% error rate** (all 65,350 requests succeeded), but the p(95) latency targets were missed.
+- **Root Cause**: High network latency between the application servers (Render) and the Redis instance (Upstash). Since they were deployed in different geographical regions, every Redis network call added a latency penalty. This penalty compounded because endpoints like answer-saving, heartbeat recording, and rate-limiting perform multiple sequential Redis operations.
+- **Mitigation/Resolution**: Migrate and align the Upstash Redis database region to match the hosting region of the Render backend web services.
 
 ---
 
 ## 2. Peak Target Test (2000 VUs)
 **Goal**: Confirm the system handles the stated peak load of 2000 concurrent students in the SPEC.
-**Status**: [PENDING]
-
-| Metric | Target | Actual | Pass/Fail |
-|--------|--------|--------|-----------|
-| HTTP Request p(95) | < 500ms | _ms | _ |
-| Error Rate | < 1.00% | _% | _ |
-| Answer Save p(95) | < 300ms | _ms | _ |
-| Submit Exam p(95) | < 1000ms | _ms | _ |
+**Status**: DEFERRED
 
 ### Observations & Fixes (2000 VUs)
-_Document any bottlenecks discovered here and the corresponding fixes._
+Deferred until the Upstash Redis region alignment is complete and verified to ensure that the latency baseline matches the local sub-millisecond expected Redis times.

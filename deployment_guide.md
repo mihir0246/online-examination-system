@@ -47,9 +47,10 @@ In the Render dashboard → your service → **Environment**, add:
 ### 3. Redis
 
 Use **Upstash** (free tier, no card required) or **Redis Cloud**:
-1. Create a Redis database at [upstash.com](https://upstash.com)
-2. Copy the **Host**, **Port**, and **Password** into Render env vars above
-3. Render will connect on startup — the circuit breaker handles downtime gracefully
+1. Create a Redis database at [upstash.com](https://upstash.com).
+2. 🔴 **CRITICAL (REGION MATCHING):** When creating the Redis database, you **must** select the exact same geographical region as your Render backend Web Service (e.g., if Render is in Oregon `us-west-2`, Upstash must be in AWS `us-west-2`). Failing to match regions introduces severe cross-region roundtrip latency, which compounds under load and can spike response times from <50ms to >1500ms.
+3. Copy the **Host**, **Port**, and **Password** into Render env vars above.
+4. Render will connect on startup — the circuit breaker handles downtime gracefully.
 
 ### 4. HTTPS
 
