@@ -8,6 +8,10 @@ import prisma from "./prisma.js";
 import logger from "./logger.js";
 import { isTokenBlacklisted } from "./redis.js";
 
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable must be set');
+}
+
 // User Login Local Strategy
 passport.use('login', new LocalStrategy({
   usernameField: 'emailid',

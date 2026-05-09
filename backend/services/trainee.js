@@ -9,6 +9,10 @@ import { saveExamState, loadExamState, deleteExamState } from "./cache.js";
 import { auditLog, auditFromReq, AuditEvent } from "./auditLog.js";
 import jwt from "jsonwebtoken";
 
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable must be set');
+}
+
 const traineeSchema = z.object({
   name: z.string().min(1, "Name is required"),
   emailid: z.string().email("Invalid email"),

@@ -6,6 +6,10 @@ import { z } from 'zod';
 import logger from "./logger.js";
 import { auditLog, AuditEvent } from "./auditLog.js";
 
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable must be set');
+}
+
 const loginSchema = z.object({
   emailid: z.string().email("Invalid email format"),
   password: z.string().min(5, "Password must be at least 5 characters")
